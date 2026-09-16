@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BCNS 新一代参考实现（Python）</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-muted: #8b949e;
+            --link: #58a6ff;
+            --link-hover: #79c0ff;
+            --code-bg: #1c2128;
+            --table-stripe: #1c2128;
+            --heading: #f0f6fc;
+            --accent: #4B8BBE;
+            --accent2: #FFD43B;
+            --success: #3fb950;
+            --warn: #d29922;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            font-size: 16px;
+            padding: 20px;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 40px 48px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 16px;
+            }
+        }
+        h1, h2, h3, h4 {
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.3;
+        }
+        h1 {
+            font-size: 2em;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.4em;
+            margin-top: 0;
+        }
+        h2 {
+            font-size: 1.5em;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        h3 {
+            font-size: 1.25em;
+        }
+        h4 {
+            font-size: 1.1em;
+        }
+        p {
+            margin-bottom: 1em;
+        }
+        a {
+            color: var(--link);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        a:hover {
+            color: var(--link-hover);
+            text-decoration: underline;
+        }
+        blockquote {
+            border-left: 4px solid var(--accent);
+            padding: 0.6em 1.2em;
+            margin: 1em 0;
+            color: var(--text-muted);
+            background: rgba(75, 139, 190, 0.08);
+            border-radius: 0 6px 6px 0;
+        }
+        blockquote p {
+            margin-bottom: 0.4em;
+        }
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.88em;
+            background: var(--code-bg);
+            padding: 0.2em 0.45em;
+            border-radius: 4px;
+            color: #ffa657;
+        }
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            overflow-x: auto;
+            margin: 1em 0;
+            line-height: 1.6;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: var(--text);
+            font-size: 0.9em;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1em 0;
+            font-size: 0.92em;
+            display: block;
+            overflow-x: auto;
+        }
+        thead {
+            background: var(--code-bg);
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            color: var(--heading);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        tbody tr:nth-child(even) {
+            background: var(--table-stripe);
+        }
+        tbody tr:hover {
+            background: rgba(75, 139, 190, 0.06);
+        }
+        hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 2.5em 0;
+        }
+        ul, ol {
+            padding-left: 1.8em;
+            margin-bottom: 1em;
+        }
+        li {
+            margin-bottom: 0.35em;
+        }
+        strong {
+            color: var(--heading);
+            font-weight: 600;
+        }
+        .tag {
+            display: inline-block;
+            padding: 0.1em 0.5em;
+            border-radius: 4px;
+            font-size: 0.82em;
+            font-weight: 600;
+            vertical-align: middle;
+        }
+        .tag-ok {
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--success);
+        }
+        .tag-warn {
+            background: rgba(210, 153, 34, 0.15);
+            color: var(--warn);
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.15em 0.6em;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 600;
+            background: var(--accent);
+            color: #fff;
+        }
+        .badge-yellow {
+            background: var(--accent2);
+            color: #1a1a2e;
+        }
+        .callout {
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent2);
+            background: rgba(255, 212, 59, 0.06);
+            border-radius: 6px;
+            padding: 14px 18px;
+            margin: 1em 0;
+        }
+        .callout-warn {
+            border-left-color: var(--warn);
+            background: rgba(210, 153, 34, 0.06);
+        }
+        .callout p:last-child {
+            margin-bottom: 0;
+        }
+        .toc {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 24px;
+            margin: 1.5em 0;
+        }
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+            margin-bottom: 0;
+        }
+        .toc li {
+            margin-bottom: 0.3em;
+        }
+        .toc a {
+            color: var(--text-muted);
+        }
+        .toc a:hover {
+            color: var(--link);
+        }
+        .footer {
+            margin-top: 2em;
+            padding-top: 1em;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85em;
+        }
+        .emoji {
+            font-style: normal;
+        }
+        .checkbox {
+            display: inline-block;
+            width: 1em;
+            height: 1em;
+            border: 2px solid var(--text-muted);
+            border-radius: 3px;
+            margin-right: 0.5em;
+            vertical-align: middle;
+            position: relative;
+            top: -1px;
+        }
+        .checkbox.checked {
+            background: var(--success);
+            border-color: var(--success);
+        }
+        .checkbox.checked::after {
+            content: "✓";
+            color: #fff;
+            font-size: 0.7em;
+            position: absolute;
+            top: -1px;
+            left: 2px;
+            font-weight: bold;
+        }
+        .kbd {
+            display: inline-block;
+            padding: 0.15em 0.5em;
+            font-size: 0.85em;
+            font-family: monospace;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-shadow: 0 1px 0 var(--border);
+        }
+        .highlight-blue {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .highlight-yellow {
+            color: var(--accent2);
+            font-weight: 600;
+        }
+        .file-tree {
+            font-family: "SFMono-Regular", Consolas, monospace;
+            font-size: 0.9em;
+            line-height: 1.8;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin: 1em 0;
+            overflow-x: auto;
+        }
+        .file-tree .comment {
+            color: var(--text-muted);
+        }
+        .file-tree .star {
+            color: var(--accent2);
+        }
+        .ascii-diagram {
+            font-family: "SFMono-Regular", Consolas, monospace;
+            font-size: 0.85em;
+            line-height: 1.6;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin: 1em 0;
+            overflow-x: auto;
+            white-space: pre;
+            color: var(--text);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <h1>BCNS 新一代参考实现（Python）</h1>
+
+    <blockquote>
+        <p>用统一技术栈替代原有 10 类老软件的<strong>可运行原型</strong>。</p>
+        <p>设计原则：<strong>配置驱动、沿用现有 Schema、渐进迁移</strong>。</p>
+        <p>2026-09-10</p>
+    </blockquote>
+
+    <hr>
+
+    <h2>一、这套原型解决什么</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>老软件</th>
+                <th>问题</th>
+                <th>本原型替代</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>YeatCtl（VC++/MFC）</td>
+                <td>源码老、无版本管理、改一处要改所有项目</td>
+                <td><code>collector.py</code> 配置驱动的采集服务</td>
+            </tr>
+            <tr>
+                <td>BCNSCom / YEATDLL</td>
+                <td>COM 组件封闭</td>
+                <td><code>api_server.py</code> / <code>api_server_lite.py</code> REST/JSON</td>
+            </tr>
+            <tr>
+                <td>webbcns（ASP+Flash）</td>
+                <td>Flash 停服、无法手机访问</td>
+                <td>前端另行 Vue3 化（本目录为后端支撑）</td>
+            </tr>
+            <tr>
+                <td>VB6 组态工具</td>
+                <td>VB6 已淘汰</td>
+                <td>点表/报警全部 YAML 配置化</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <h2>二、原两大核心程序的功能覆盖对照</h2>
+
+    <h3>① YeatCtl.exe（后台监控服务器）—— 四大功能</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>原功能</th>
+                <th>本原型实现</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>① 定时轮询各网络控制器（≤32 台）获取状态</td>
+                <td><code>collector.py</code> 按配置轮询，台数不限</td>
+                <td><span class="tag tag-ok">✅</span></td>
+            </tr>
+            <tr>
+                <td>② 状态变化<strong>即时</strong>存库</td>
+                <td><code>ChangeDetector</code> 变化检测 + <code>on_change_only</code> 可只在变化时写库</td>
+                <td><span class="tag tag-ok">✅</span></td>
+            </tr>
+            <tr>
+                <td>③ 经 COM 与前台交换数据、<strong>接收用户命令</strong></td>
+                <td>API <code>POST /control</code> 入队 → 采集服务执行</td>
+                <td><span class="tag tag-ok">✅</span></td>
+            </tr>
+            <tr>
+                <td>④ 向指定控制器<strong>按协议下发命令</strong></td>
+                <td><code>write_register</code>（功能码 6）+ 命令队列闭环</td>
+                <td><span class="tag tag-ok">✅</span></td>
+            </tr>
+            <tr>
+                <td>配置 YeatCtl.INI（SvrName/DBType/DBPath/UID/CtrlLib/DataPort）</td>
+                <td>YAML：host/port/framer/parity/table/driver 等</td>
+                <td><span class="tag tag-ok">✅</span> 等价</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p><strong>说明</strong>：原程序为 VC++/MFC 编译产物；本原型以 Python <strong>重新实现同等功能</strong>，
+    不是"保留原内核编译"。原 VC++ 源码仍完整保留在 <code>01_核心软件_公共底座/A1</code> 供对照与回退。</p>
+
+    <h3>② BCNSCom / YEATDLL.dll（COM 通讯组件）—— 协议语义保留</h3>
+
+    <p><code>bcnscom_adapter.py</code> 完整保留原协议语义并封装为标准适配层：</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>原协议要素</th>
+                <th>实现</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>REQUEST / RESPONSE 各分 A、B 两类</td>
+                <td><code>BCNSRequest</code> / <code>BCNSResponse</code>，kind='A'|'B'</td>
+            </tr>
+            <tr>
+                <td>A 类最多 8 个 VARIANT 参数</td>
+                <td><code>MAX_VARIANTS = 8</code>，超限校验</td>
+            </tr>
+            <tr>
+                <td>B 类 128 字节 COMBUFFER</td>
+                <td><code>COMBuffer</code>，128 字节定长、超容量校验</td>
+            </tr>
+            <tr>
+                <td>按 IP 末字节寻址 bCtlNumIP</td>
+                <td>所有接口首参 <code>bCtlNumIP</code></td>
+            </tr>
+            <tr>
+                <td>GET / PUT 收发命令</td>
+                <td><code>get_response()</code> / <code>put_request()</code></td>
+            </tr>
+            <tr>
+                <td>功能码 0FFH 后台服务请求</td>
+                <td><code>FUNC.SERVICE_REQ</code>，返回服务状态</td>
+            </tr>
+            <tr>
+                <td>81H/82H 读控制点、91H—93H 读参数、F2H 特殊控制</td>
+                <td>均有对应分支</td>
+            </tr>
+            <tr>
+                <td>功能码分区（&lt;40H 操作 / 40H—80H 请求 / &gt;80H 块发送）</td>
+                <td><code>FUNC.zone()</code> 自动分区处理</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p>自测：<code>python bcnscom_adapter.py</code>（6 项全通过）</p>
+
+    <h3>控制闭环（可审计）</h3>
+
+    <div class="ascii-diagram">前台/数字员工
+   │  POST /api/v1/{code}/control  {"equip_id":621002,"addr":5,"value":100}
+   ▼
+API ──写入──▶ command_queue 表（status=pending，含来源与时间戳）
+   ▼
+collector 每周期出队 ──▶ write_register（功能码6）──▶ 控制器
+   │                                                  │
+   └──────────status=done/failed ◀─────────────────────┘
+   ▼
+GET /api/v1/{code}/commands  查看执行结果（全程可追溯）
+
+CLI 直发：python collector.py --config ... --write 5 100 --equip 621002</div>
+
+    <hr>
+
+    <h2>二、目录结构</h2>
+
+    <div class="file-tree">10_新一代参考实现_Python/
+├── config/
+│   └── dffd_东方饭店.yaml      <span class="comment"># 试点项目配置（点表/控制器/采集参数/报警判据）</span>
+├── collector.py                <span class="comment"># 采集服务（Modbus RTU-over-TCP，配置驱动）</span>
+├── api_server.py               <span class="comment"># 取数 API（FastAPI 版，功能全，需 pip 安装）</span>
+├── api_server_lite.py          <span class="comment"># 取数 API（零依赖版，标准库即可运行）</span><span class="star">★现场推荐</span>
+├── data/dffd.db                <span class="comment"># SQLite 演示库（采集自动创建）</span>
+└── README.md</div>
+
+    <hr>
+
+    <h2>三、快速开始</h2>
+
+    <h3>3.1 安装依赖</h3>
+
+    <pre><code>pip install pyyaml                      # 必需（已随本环境安装）
+pip install pymodbus                    # 真实采集时需要
+pip install fastapi uvicorn httpx       # 仅 api_server.py 需要</code></pre>
+
+    <blockquote>
+        <p><strong>现场老服务器若无外网</strong>：只装 <code>pyyaml</code>，用 <code>api_server_lite.py</code>（零依赖）即可。</p>
+    </blockquote>
+
+    <h3>3.2 先跑通流程（模拟数据，无需设备）</h3>
+
+    <pre><code>python collector.py --config config/dffd_东方饭店.yaml --simulate --once</code></pre>
+
+    <p>输出示例（17 个测点）：</p>
+
+    <pre><code>采集 2#冷水机组：17 个测点，报警 3 条
+    U_rCoWtr_InTmp       = 29.2     冷却水进口温度
+    U_rChWtr_OutTmp      = 13.3     冷冻水出口温度
+    U_DQFH               = 78.0     机组当前负荷
+    U_YXXS               = 12020.0  总运行小时
+    [报警] 冷冻水出水温度高 = 13.3 (warn)</code></pre>
+
+    <p>数据自动写入 <code>data/dffd.db</code> 的 <code>tblUnitData</code>（<strong>字段与现有 Schema 完全一致</strong>）。</p>
+
+    <h3>3.3 启动 API</h3>
+
+    <pre><code># 零依赖版（推荐现场）
+python api_server_lite.py --port 8080
+
+# 或 FastAPI 版
+uvicorn api_server:app --host 0.0.0.0 --port 8080</code></pre>
+
+    <p>测试：</p>
+
+    <pre><code>curl http://127.0.0.1:8080/api/v1/health
+curl http://127.0.0.1:8080/api/v1/dffd/realtime
+curl http://127.0.0.1:8080/api/v1/dffd/alarms
+curl "http://127.0.0.1:8080/api/v1/dffd/history?field=U_rChWtr_OutTmp&equip_id=621002&limit=100"
+curl http://127.0.0.1:8080/api/v1/dffd/snapshot</code></pre>
+
+    <h3>3.4 接真实设备</h3>
+
+    <p>编辑 <code>config/dffd_东方饭店.yaml</code>：</p>
+
+    <pre><code>transport:
+  host: 192.168.1.241     # 现场串口服务器 IP
+  port: 4001
+  framer: rtu             # RTU over TCP
+  parity: N               # T25 实测无校验（顿汉布什为偶校验，勿混用）
+controllers:
+  - equip_id: 621002
+    active: true          # 现场仅 2 号冷机启用</code></pre>
+
+    <p>然后：</p>
+
+    <pre><code>python collector.py --config config/dffd_东方饭店.yaml     # 持续采集（周期 60s）</code></pre>
+
+    <hr>
+
+    <h2>四、接口一览</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>接口</th>
+                <th>说明</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>GET /api/v1/health</code></td>
+                <td>健康检查</td>
+            </tr>
+            <tr>
+                <td><code>GET /api/v1/projects</code></td>
+                <td>项目列表</td>
+            </tr>
+            <tr>
+                <td><code>GET /api/v1/{code}/points</code></td>
+                <td>点表（寄存器地址、字段名、系数、单位）</td>
+            </tr>
+            <tr>
+                <td><code>GET /api/v1/{code}/devices</code></td>
+                <td>设备清单（机组、型号、启用状态）</td>
+            </tr>
+            <tr>
+                <td><code>GET /api/v1/{code}/realtime</code></td>
+                <td>实时值（每台机组最新一条）</td>
+            </tr>
+            <tr>
+                <td><code>GET /api/v1/{code}/history</code></td>
+                <td>历史序列（<code>field</code> + <code>equip_id</code> + 时间范围）</td>
+            </tr>
+            <tr>
+                <td><code>GET /api/v1/{code}/alarms</code></td>
+                <td>报警（按配置判据评估）</td>
+            </tr>
+            <tr>
+                <td><code>GET /api/v1/{code}/snapshot</code></td>
+                <td>一键快照（数字员工生成报告用）</td>
+            </tr>
+            <tr>
+                <td><code>WS /ws/{code}</code></td>
+                <td>实时推送（仅 FastAPI 版）</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <h2>五、配置说明（核心：一个文件定义一个项目）</h2>
+
+    <pre><code>project:    { code: dffd, name: 东方饭店, iPrjID: 10060801 }
+transport:  { mode: rtu-over-tcp, host, port, framer, parity }
+acquisition:{ func: 3, interval_sec: 60, groups: [{start,len}] }
+controllers:[ { equip_id, name, model, unit, active } ]
+points:     [ { reg, name, field, scale, unit } ]
+output:     { table: tblUnitData, driver: sqlite|mssql }
+alarms:     [ { field, name, op, threshold, level } ]</code></pre>
+
+    <p><strong>新增一个项目 = 复制一份 YAML 改配置</strong>，程序完全通用——这正是"1 个公共底座 + N 份项目配置"的落地。</p>
+
+    <h3>多机型项目：point_profiles</h3>
+
+    <p>一个项目里常有<strong>不同型号的设备</strong>（冷机 + 电表 + 水泵），点表各不相同。用 <code>point_profiles</code> 定义多套点表，设备用 <code>profile</code> 引用：</p>
+
+    <pre><code>point_profiles:
+  chiller_york:        # 约克离心机 20 点
+    - {reg: 10, name: 冷冻水进口温度, field: U_rChWtr_InTmp, scale: 0.1, unit: '℃'}
+  power_meter:         # 电量仪表 10 点
+    - {reg: 1,  name: A相电压, field: M_A_voltage, scale: 0.1, unit: 'V'}
+
+controllers:
+  - {equip_id: 621001, name: 1#冷水机组, profile: chiller_york, active: true}
+  - {equip_id: 730001, name: 1#电表, profile: power_meter,
+     groups: [{start: 1, len: 20}], active: true}      # 可覆盖分组</code></pre>
+
+    <h3>已内置的机型模板</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>profile</th>
+                <th>机型</th>
+                <th>点数</th>
+                <th>来源</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>chiller_t25</code></td>
+                <td>特灵 T25</td>
+                <td>17</td>
+                <td>东方饭店实测</td>
+            </tr>
+            <tr>
+                <td><code>chiller_york</code></td>
+                <td>约克离心机</td>
+                <td>20</td>
+                <td>港中旅实测</td>
+            </tr>
+            <tr>
+                <td><code>power_meter</code></td>
+                <td>电量仪表</td>
+                <td>10</td>
+                <td>港中旅实测</td>
+            </tr>
+            <tr>
+                <td><code>chiller_dunham</code></td>
+                <td>顿汉布什冷机</td>
+                <td>15</td>
+                <td>磁器口实测</td>
+            </tr>
+            <tr>
+                <td><code>cold_station_plc</code></td>
+                <td>冷站 PLC（台达 DVP）</td>
+                <td>16</td>
+                <td>磁器口实测</td>
+            </tr>
+            <tr>
+                <td><code>ac_unit_plc</code></td>
+                <td>空调机组 PLC</td>
+                <td>11</td>
+                <td>磁器口实测</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <h2>五之二、已有配置文件</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>文件</th>
+                <th>项目</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>_template_通用项目模板.yaml</code></td>
+                <td>—</td>
+                <td><strong>模板</strong>（以 <code>_</code> 开头，API 不加载，供复制）</td>
+            </tr>
+            <tr>
+                <td><code>dffd_东方饭店.yaml</code></td>
+                <td>东方饭店</td>
+                <td><span class="tag tag-ok">✅</span> 实测可用（T25×3，17 点）</td>
+            </tr>
+            <tr>
+                <td><code>gzl_港中旅.yaml</code></td>
+                <td>港中旅维景大酒店</td>
+                <td><span class="tag tag-ok">✅</span> 实测可用（约克冷机×4 + 电表×2，30 点）</td>
+            </tr>
+            <tr>
+                <td><code>cqk_地铁磁器口.yaml</code></td>
+                <td>地铁7号线磁器口站</td>
+                <td><span class="tag tag-ok">✅</span> <strong>多协议混合接入</strong>（顿汉布什冷机 + 台达PLC + 空调机组，42 点）</td>
+            </tr>
+            <tr>
+                <td><code>cfzx_财富购物中心.yaml</code></td>
+                <td>财富购物中心</td>
+                <td><span class="tag tag-warn">⚠️</span> <strong>待现场核实</strong></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>多协议混合接入（磁器口 cqk）</h3>
+
+    <p>磁器口是最复杂的样例：<strong>三种设备、两条通道、三张落点表</strong>共存于一个项目。</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>设备</th>
+                <th>通道</th>
+                <th>协议 / 功能码</th>
+                <th>落点表</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>顿汉布什冷机 ×3</td>
+                <td>串口服务器 <code>192.168.1.241:4001</code></td>
+                <td>Modbus <strong>RTU</strong>（9600, <strong>偶校验</strong>, 8, 1），功能码 3</td>
+                <td><code>tblUnitData</code></td>
+            </tr>
+            <tr>
+                <td>冷站 PLC（台达 DVP）</td>
+                <td>以太网 <code>192.168.2.221:502</code></td>
+                <td>Modbus <strong>TCP</strong>，功能码 1（线圈）+ 3（寄存器）</td>
+                <td><code>tblColdData</code></td>
+            </tr>
+            <tr>
+                <td>空调机组 PLC ×2</td>
+                <td>以太网 <code>192.168.2.226/227:1502</code></td>
+                <td>Modbus <strong>TCP</strong>，功能码 3</td>
+                <td><code>tblACData</code></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p>实现要点：</p>
+    <ul>
+        <li><strong>控制器级覆盖通道</strong>：<code>host</code> / <code>port</code> / <code>framer</code> 写在 controller 上即覆盖全局 <code>transport</code></li>
+        <li><strong>控制器级覆盖落点表</strong>：<code>table:</code> 字段，不同设备写不同表</li>
+        <li><strong>地址空间分离</strong>：线圈（功能码 1/2）与寄存器（3/4）地址可重叠，点表用 <code>space: coil</code> 指明取自线圈空间</li>
+    </ul>
+
+    <pre><code>controllers:
+  - {equip_id: 621002, profile: chiller_dunham, table: tblUnitData, unit: 2, active: true}
+  - {equip_id: 221001, profile: cold_station_plc, table: tblColdData,
+     host: 192.168.2.221, port: 502, framer: tcp,          # ★覆盖通道
+     groups: [{start: 0, len: 8, func: 1},                 # 线圈：泵/故障状态
+              {start: 1, len: 10, func: 3}], active: true} # 寄存器：流量/温度</code></pre>
+
+    <blockquote>
+        <p>⚠️ <strong>校验方式</strong>：顿汉布什原厂默认<strong>偶校验</strong>，特灵 T25 为<strong>无校验</strong>——同一项目内不同机型也可能不同，务必逐台核对。</p>
+    </blockquote>
+
+    <h3>机组—点表对照总表（四个项目）</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>项目</th>
+                <th>机组（实际）</th>
+                <th>联网情况</th>
+                <th>点表来源</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>地铁磁器口</strong> cqk</td>
+                <td>顿汉布什<strong>螺杆机</strong></td>
+                <td>2#、3# 冷机 + 冷站PLC + 空调PLC</td>
+                <td>厂家点表《顿汉布什机组modbus点表.pdf》+ 现役库实测</td>
+            </tr>
+            <tr>
+                <td><strong>港中旅</strong> gzl</td>
+                <td><strong>开利</strong> ×4</td>
+                <td><strong>仅 3#、4# 联网</strong></td>
+                <td>现役库 <code>tblCtrlPntSet</code> 实测 99 点</td>
+            </tr>
+            <tr>
+                <td><strong>东方饭店</strong> dffd</td>
+                <td><strong>麦克维尔螺杆机</strong> ×3</td>
+                <td>3 台</td>
+                <td>现役库实测 51 点</td>
+            </tr>
+            <tr>
+                <td><strong>财富购物中心</strong> cfzx</td>
+                <td><strong>约克离心机</strong> ×3</td>
+                <td>待核实</td>
+                <td>⚠️ 备份库无数据，暂用约克模板占位</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <blockquote>
+        <p>⚠️ <strong>重要教训：<code>cCtlType</code> 字段不可作为机型判据！</strong></p>
+        <p>该字段在库里往往是<strong>模板复制后未修改</strong>的值——港中旅库里登记为 <code>T25</code>（特灵），
+        但实际机组是<strong>开利</strong>；东方饭店同样是 <code>T25</code>，实际却是<strong>麦克维尔螺杆机</strong>。</p>
+        <p>判断机型应依据：①现场铭牌 / 厂家点表；②<code>tblCtrlPntSet</code> 的测点特征交叉验证。</p>
+    </blockquote>
+
+    <h3>如何知道一个项目与机组联网的点表？</h3>
+
+    <p>点表<strong>全部记录在现役数据库的系统表</strong>里，用配套工具一键导出：</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>系统表</th>
+                <th>内容</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>tblModBusConfig</code></td>
+                <td>通道：串口(COM) 还是网口(IP)、波特率/校验、IP 与端口</td>
+            </tr>
+            <tr>
+                <td><code>tblCtrlConfig</code></td>
+                <td>控制器 IP、端口、采集周期</td>
+            </tr>
+            <tr>
+                <td><code>tblModBusPntSet</code></td>
+                <td><strong>Modbus 采集段</strong>：起始地址 <code>DBg</code>、长度 <code>DLg</code>、功能码 <code>cCode</code>、系数 <code>Xsk</code></td>
+            </tr>
+            <tr>
+                <td><code>tblCtrlPntSet</code></td>
+                <td><strong>测点明细</strong>：<code>bSerial</code> = 寄存器地址、<code>sName</code>、<code>sField</code>、<code>sTable</code></td>
+            </tr>
+            <tr>
+                <td><code>tblEquList</code></td>
+                <td>设备清单</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p><strong>一键提取</strong>：</p>
+
+    <pre><code>python extract_pointmap.py "D:\...\05_项目配置库_模块D\02_港中旅" --name gzl
+# 或直指 mdb：python extract_pointmap.py "D:\...\Data\Controls.mdb" --name cqk</code></pre>
+
+    <p>产出（<code>pointmap/&lt;项目&gt;/</code>）：</p>
+    <ul>
+        <li><code>&lt;项目&gt;_点表台账.md</code>——通道 / 控制器 / 采集段 / <strong>测点→寄存器映射</strong>（按设备分组）/ 设备清单</li>
+        <li><code>&lt;项目&gt;_配置片段.yaml</code>——可直接粘贴进 collector 的配置骨架</li>
+    </ul>
+
+    <p>已生成的台账（<code>pointmap/&lt;项目&gt;/</code>，每个含 <code>*_点表台账.md</code> + <code>*_配置片段.yaml</code>）：</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>项目</th>
+                <th>台账</th>
+                <th>通道</th>
+                <th>控制器</th>
+                <th>采集段</th>
+                <th>测点</th>
+                <th>说明</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>cqk</code> 磁器口</td>
+                <td>69K</td>
+                <td>7</td>
+                <td>7</td>
+                <td>46</td>
+                <td><strong>831</strong></td>
+                <td>顿汉布什螺杆机 + 台达PLC + 空调PLC</td>
+            </tr>
+            <tr>
+                <td><code>gzl</code> 港中旅</td>
+                <td>8.6K</td>
+                <td>2</td>
+                <td>5</td>
+                <td>2</td>
+                <td>99</td>
+                <td>开利 ×4（仅3#4#联网）+ 电表 ×2</td>
+            </tr>
+            <tr>
+                <td><code>dffd</code> 东方饭店</td>
+                <td>6.0K</td>
+                <td>2</td>
+                <td>5</td>
+                <td>15</td>
+                <td>51</td>
+                <td>麦克维尔螺杆机 ×3</td>
+            </tr>
+            <tr>
+                <td><code>cfzx</code> 财富中心</td>
+                <td>5.0K</td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td>⚠️ <strong>待现场核实</strong>（备份库无源库，仅骨架）</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p>每个台账首部均标注<strong>实际机组</strong>，并警示 <code>cCtlType</code> 为模板值。</p>
+
+    <p>生成命令（可带实际机型）：</p>
+
+    <pre><code>python extract_pointmap.py "...\05_项目配置库_模块D\01_东方饭店" --name dffd --model "麦克维尔螺杆机 ×3"
+python extract_pointmap.py "...\02_港中旅"   --name gzl  --model "开利机组 ×4（仅 3#、4# 联网）+ 电量仪表 ×2"
+python extract_pointmap.py "...\03_地铁瓷器口" --name cqk --model "顿汉布什螺杆机（2#、3# 冷机 + PLC）"
+# 财富中心：现场取得 mdb 后同样执行，替换占位台账
+python extract_pointmap.py "<现场Controls.mdb>" --name cfzx --model "约克离心机 ×3"</code></pre>
+
+    <h3>财富购物中心说明</h3>
+
+    <p>该项目为<strong>云端项目</strong>（<code>http://www.chinaborry.com/cfzx</code>，博瑞AI智控），
+    <strong>历史备份库中没有它的工程数据</strong>，故配置中 IP、点表等以 <code>★待填</code> 标注。现场核实 5 步（约 30 分钟）：</p>
+
+    <ol>
+        <li>打开 <code>CONTROLS_cfzx</code> 库，读 <code>tblCtrlConfig</code> → 填控制器与通道</li>
+        <li>读 <code>tblModBusConfig</code> → 确认 <code>framer</code>（COM→rtu，IP→tcp）与串口参数</li>
+        <li>读 <code>tblCtrlPntSet</code> → 替换点表（<code>bSerial</code> 即寄存器地址）</li>
+        <li>确认 <code>cCtlType</code>，从《品牌机型适配档案》套用点表模板</li>
+        <li>把 <code>active</code> 改为 <code>true</code> 启用</li>
+    </ol>
+
+    <h3>新增项目三步法</h3>
+
+    <pre><code>cp config/_template_通用项目模板.yaml config/xxxx_某某项目.yaml
+# 编辑：项目信息 → 通道 → 控制器 → 点表（可直接引用 profile）
+python collector.py --config config/xxxx_某某项目.yaml --simulate --once   # 先跑通
+python collector.py --config config/xxxx_某某项目.yaml                      # 接真机</code></pre>
+
+    <hr>
+
+    <h2>六、与现有系统的兼容</h2>
+
+    <ul>
+        <li><strong>表结构沿用</strong> <code>tblUnitData</code>（<code>iPrjID / lEquID / dTime / U_xxx</code>），存量系统可直接读</li>
+        <li><strong>点表来源</strong>为现役库实测（<code>tblCtrlPntSet.bSerial</code> = 寄存器地址，已验证）</li>
+        <li>支持与 YeatCtl <strong>并行双写</strong>：新采集写同一张表或影子表，比对一致后再切换</li>
+        <li>驱动可切 <code>mssql</code>，直接连现场 SQL Server</li>
+    </ul>
+
+    <hr>
+
+    <h2>七、部署到现场</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>环境</th>
+                <th>方式</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>新服务器（Win2019+）</td>
+                <td>Docker Compose（一并部署采集 + API + 前端）</td>
+            </tr>
+            <tr>
+                <td>老服务器（Win2008R）</td>
+                <td>NSSM 把 <code>collector.py</code> 与 <code>api_server_lite.py</code> 注册为 Windows 服务</td>
+            </tr>
+            <tr>
+                <td>极老/无 Python 环境</td>
+                <td>采集端改用 Go 单文件版（见方案文档）</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p>注册服务示例：</p>
+
+    <pre><code>nssm install BCNSCollector "C:\Python38\python.exe" "C:\bcns\collector.py --config C:\bcns\config\dffd.yaml"
+nssm install BCNSApi "C:\Python38\python.exe" "C:\bcns\api_server_lite.py --port 8080"</code></pre>
+
+    <hr>
+
+    <h2>八、下一步</h2>
+
+    <ul>
+        <li><span class="checkbox"></span> 磁器口配置（<code>config/cqk_地铁磁器口.yaml</code>）——验证顿汉布什 + 台达 PLC + S7-200 混合接入</li>
+        <li><span class="checkbox"></span> 与 YeatCtl 双写比对，出具一致性报告</li>
+        <li><span class="checkbox"></span> Vue3 前端（去 Flash、支持手机）</li>
+        <li><span class="checkbox"></span> Web 组态工具（替代 VB6）</li>
+    </ul>
+
+    <div class="footer">
+        <p>BCNS 新一代参考实现（Python） · 文档生成于 2026-09-10</p>
+    </div>
+
+</div>
+</body>
+</html>
