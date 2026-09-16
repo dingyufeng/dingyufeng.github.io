@@ -1,8 +1,658 @@
 <!DOCTYPE html>
-<html>
-<head><title>我的个人主页</title></head>
-<body>
-  <h1>你好，我是丁钰锋</h1>
-  <p>这是我的个人网页。</p>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>丁钰锋 · 个人主页</title>
+<meta name="description" content="丁钰锋的个人主页 - BCNS 新一代参考实现、Python、工控数据采集">
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1f2328;
+    --muted: #656d76;
+    --border: #e5e7eb;
+    --link: #0969da;
+    --link-hover: #0550ae;
+    --code-bg: #f6f8fa;
+    --nav-h: 58px;
+    --content-w: 860px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; scroll-padding-top: calc(var(--nav-h) + 20px); }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+                 "PingFang SC", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 16px;
+  }
+
+  /* ================= 顶部导航 ================= */
+  .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(255,255,255,0.94);
+    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-inner {
+    max-width: var(--content-w);
+    margin: 0 auto;
+    height: var(--nav-h);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+  }
+
+  /* 导航左侧姓名：小、粗 */
+  .nav-name {
+    font-size: 1.02em;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    margin-right: 22px;
+    padding-right: 22px;
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  /* 导航链接：更小 */
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    list-style: none;
+    flex: 1;
+  }
+
+  .nav-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.85em;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+
+  .nav-links a:hover {
+    background: var(--code-bg);
+    color: var(--link);
+  }
+
+  .nav-links .icon { font-size: 1em; line-height: 1; }
+
+  /* 中英文切换：最小、全大写、有字距 */
+  .lang-toggle {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: #fff;
+    color: var(--text);
+    font-size: 0.76em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .lang-toggle:hover {
+    border-color: var(--link);
+    color: var(--link);
+    background: #f0f6ff;
+  }
+
+  /* ================= 主体 ================= */
+  .container {
+    max-width: var(--content-w);
+    margin: 0 auto;
+    padding: 0 20px 80px;
+  }
+
+  /* ================= 个人简介区 ================= */
+  .hero {
+    display: flex;
+    gap: 40px;
+    align-items: flex-start;
+    padding: 52px 0 40px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hero-avatar {
+    width: 168px;
+    height: 210px;
+    border-radius: 12px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #4B8BBE, #FFD43B);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3.2em;
+    font-weight: 700;
+    color: #fff;
+    user-select: none;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    object-fit: cover;
+  }
+
+  .hero-right {
+    flex: 1;
+    text-align: center;
+    padding-top: 10px;
+  }
+
+  /* 姓名：大、粗 */
+  .hero-right h1 {
+    font-size: 2.15em;
+    font-weight: 600;
+    letter-spacing: -0.4px;
+    margin-bottom: 20px;
+    line-height: 1.25;
+  }
+
+  .hero-right h1 .en { font-weight: 600; }
+
+  .hero-right h1 .divider {
+    color: var(--muted);
+    font-weight: 300;
+    margin: 0 8px;
+  }
+
+  /* 简介正文：正常大小 */
+  .hero-bio {
+    font-size: 1em;
+    color: var(--text);
+    max-width: 540px;
+    margin: 0 auto 20px;
+    text-align: center;
+    line-height: 1.75;
+  }
+
+  .hero-bio strong { color: var(--link); font-weight: 600; }
+
+  /* 联系方式：小一号 */
+  .hero-contact {
+    font-size: 0.9em;
+    color: var(--muted);
+    line-height: 2;
+  }
+
+  .hero-contact a {
+    color: var(--link);
+    text-decoration: none;
+  }
+
+  .hero-contact a:hover { text-decoration: underline; }
+
+  /* ================= 板块标题：大、粗 ================= */
+  .section {
+    padding: 46px 0 0;
+  }
+
+  .section-title {
+    font-size: 1.95em;
+    font-weight: 600;
+    margin-bottom: 28px;
+    letter-spacing: -0.5px;
+    position: relative;
+  }
+
+  /* ================= 经历条目 ================= */
+  .exp-list { list-style: none; }
+
+  .exp-item {
+    display: flex;
+    gap: 26px;
+    margin-bottom: 32px;
+    align-items: flex-start;
+  }
+
+  .exp-logo {
+    width: 150px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-top: 4px;
+  }
+
+  .exp-logo img {
+    max-width: 150px;
+    max-height: 58px;
+    object-fit: contain;
+  }
+
+  .exp-logo .logo-text {
+    font-size: 1.1em;
+    font-weight: 700;
+    color: var(--muted);
+    text-align: right;
+    line-height: 1.3;
+  }
+
+  .exp-logo .logo-text .sub {
+    display: block;
+    font-size: 0.68em;
+    font-weight: 400;
+    color: #9aa4af;
+    letter-spacing: 1px;
+  }
+
+  .exp-body { flex: 1; }
+
+  /* 机构名：中号、粗 */
+  .exp-body .org {
+    font-size: 1.3em;
+    font-weight: 600;
+    margin-bottom: 3px;
+    line-height: 1.35;
+  }
+
+  /* 时间：小号、等宽 */
+  .exp-body .period {
+    font-size: 0.85em;
+    color: var(--muted);
+    font-family: "SFMono-Regular", Consolas, monospace;
+    margin-bottom: 9px;
+  }
+
+  /* 描述：正常偏小 */
+  .exp-body .desc {
+    font-size: 0.96em;
+    color: var(--text);
+    margin-bottom: 6px;
+    line-height: 1.7;
+  }
+
+  .exp-body .desc:last-child { margin-bottom: 0; }
+
+  .exp-body .desc strong {
+    color: var(--link);
+    font-weight: 600;
+  }
+
+  /* ================= 论文 / 成果 ================= */
+  .pub-list {
+    list-style: none;
+    counter-reset: pub;
+  }
+
+  /* 论文条目：正常大小 */
+  .pub-item {
+    position: relative;
+    padding-left: 36px;
+    margin-bottom: 22px;
+    font-size: 1em;
+    line-height: 1.7;
+  }
+
+  .pub-item::before {
+    counter-increment: pub;
+    content: "[" counter(pub) "]";
+    position: absolute;
+    left: 0;
+    color: var(--muted);
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 0.9em;
+  }
+
+  .pub-item .pub-title { font-weight: 600; }
+
+  .pub-item .pub-venue {
+    font-style: italic;
+    color: var(--muted);
+  }
+
+  .pub-item .pub-links { margin-top: 3px; }
+
+  .pub-item .pub-links a {
+    font-size: 0.85em;
+    color: var(--link);
+    margin-right: 12px;
+    text-decoration: none;
+  }
+
+  .pub-item .pub-links a:hover { text-decoration: underline; }
+
+  /* ================= 项目 ================= */
+  .proj-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 16px;
+  }
+
+  .proj-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    transition: all 0.2s;
+    background: #fff;
+  }
+
+  .proj-card:hover {
+    border-color: var(--link);
+    box-shadow: 0 6px 22px rgba(9,105,218,0.1);
+    transform: translateY(-2px);
+  }
+
+  /* 项目名：中号、粗 */
+  .proj-card h4 {
+    font-size: 1.08em;
+    font-weight: 600;
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }
+
+  /* 项目描述：小一号 */
+  .proj-card p {
+    font-size: 0.9em;
+    color: var(--muted);
+    margin-bottom: 10px;
+    line-height: 1.65;
+  }
+
+  .proj-card .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .proj-card .tag {
+    font-size: 0.74em;
+    padding: 2px 10px;
+    border-radius: 12px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  /* ================= 技能 ================= */
+  .skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* 技能标签：小号 */
+  .skill {
+    font-size: 0.88em;
+    padding: 6px 16px;
+    border-radius: 8px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    line-height: 1.4;
+  }
+
+  /* ================= 页脚 ================= */
+  .footer {
+    margin-top: 60px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.82em;
+  }
+
+  /* ================= 语言切换显示控制 ================= */
+  body.lang-en .zh { display: none !important; }
+  body.lang-zh .en { display: none !important; }
+
+  /* ================= 响应式 ================= */
+  @media (max-width: 700px) {
+    .nav-inner { padding: 0 12px; }
+    .nav-name { margin-right: 12px; padding-right: 12px; font-size: 0.95em; }
+    .nav-links { gap: 0; overflow-x: auto; }
+    .nav-links a { padding: 6px 8px; font-size: 0.82em; }
+    .nav-links a .nav-text { display: none; }
+    .lang-toggle .lang-text { display: none; }
+    .hero { flex-direction: column; align-items: center; gap: 24px; padding: 34px 0 28px; }
+    .hero-avatar { width: 140px; height: 175px; }
+    .hero-right h1 { font-size: 1.7em; }
+    .section-title { font-size: 1.55em; }
+    .exp-item { flex-direction: column; gap: 10px; }
+    .exp-logo { justify-content: flex-start; }
+    .exp-body .org { font-size: 1.15em; }
+  }
+</style>
+</head>
+<body class="lang-zh">
+
+<!-- ================= 顶部导航 ================= -->
+<nav class="navbar">
+  <div class="nav-inner">
+    <a href="#" class="nav-name">
+      <span class="zh">丁钰锋</span>
+      <span class="en">Yufeng Ding</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#about"><span class="icon">🏠</span><span class="nav-text zh">主页</span><span class="nav-text en">Home</span></a></li>
+      <li><a href="#experience"><span class="icon">💼</span><span class="nav-text zh">经历</span><span class="nav-text en">Experience</span></a></li>
+      <li><a href="#publications"><span class="icon">📄</span><span class="nav-text zh">成果</span><span class="nav-text en">Publications</span></a></li>
+      <li><a href="#projects"><span class="icon">🔧</span><span class="nav-text zh">项目</span><span class="nav-text en">Projects</span></a></li>
+    </ul>
+    <button class="lang-toggle" id="langToggle" onclick="toggleLang()">
+      <span>🌐</span>
+      <span class="lang-text" id="langText">ENGLISH MODE</span>
+    </button>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- ================= 个人简介 ================= -->
+  <section class="hero" id="about">
+    <div class="hero-avatar">丁</div>
+    <div class="hero-right">
+      <h1>
+        <span class="en">Yufeng Ding</span>
+        <span class="divider">|</span>
+        <span class="zh">丁钰锋</span>
+      </h1>
+
+      <div class="hero-bio zh">
+        我目前专注于 <strong>楼宇自控（BCNS）</strong> 与 <strong>工业数据采集</strong> 方向，正在用统一技术栈替代原有 10 类老软件，核心思路是<strong>配置驱动、沿用现有 Schema、渐进迁移</strong>。
+      </div>
+      <div class="hero-bio en">
+        I focus on <strong>Building Control Systems (BCNS)</strong> and <strong>industrial data acquisition</strong>, replacing 10 legacy software systems with a unified, config-driven stack — <strong>config-driven, schema-compatible, incremental migration</strong>.
+      </div>
+
+      <div class="hero-contact">
+        <span class="zh">邮箱：</span><span class="en">Email: </span>
+        <a href="mailto:your@email.com">your@email.com</a><br>
+        <a href="https://github.com/dingyufeng" target="_blank">GitHub</a> /
+        <a href="https://dingyufeng.github.io/" target="_blank">Homepage</a> /
+        <a href="#" target="_blank"><span class="zh">简历</span><span class="en">CV</span></a> /
+        <a href="#" target="_blank"><span class="zh">微信</span><span class="en">WeChat</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 经历 ================= -->
+  <section class="section" id="experience">
+    <h2 class="section-title zh">经历</h2>
+    <h2 class="section-title en">Experience</h2>
+
+    <ul class="exp-list">
+
+      <li class="exp-item">
+        <div class="exp-logo">
+          <!-- 这里可换成 <img src="assets/logo-bcns.png" alt="BCNS"> -->
+          <div class="logo-text">BCNS<span class="sub">楼宇自控</span></div>
+        </div>
+        <div class="exp-body">
+          <div class="org zh">BCNS 新一代参考实现（Python）</div>
+          <div class="org en">BCNS Next-Gen Reference Implementation (Python)</div>
+          <div class="period">2026.07 - <span class="zh">至今</span><span class="en">Present</span></div>
+          <div class="desc zh">负责用 Python 重写采集服务与取数 API，完成东方饭店、港中旅、磁器口、财富中心四个项目的配置落地。</div>
+          <div class="desc en">Rewrote the acquisition service and data API in Python, delivering four projects (Dongfang Hotel, GZL, Ciqikou, Caifu Center).</div>
+          <div class="desc zh">实现 <strong>多协议混合接入</strong>：顿汉布什冷机（Modbus RTU）+ 台达 PLC（Modbus TCP）+ 空调 PLC，共 42 个测点。</div>
+          <div class="desc en">Implemented <strong>multi-protocol access</strong>: Dunham-Bush chillers (RTU) + Delta PLC (TCP) + AHU PLC, 42 points.</div>
+        </div>
+      </li>
+
+      <li class="exp-item">
+        <div class="exp-logo">
+          <div class="logo-text">BCNSCom<span class="sub">协议适配</span></div>
+        </div>
+        <div class="exp-body">
+          <div class="org zh">BCNSCom 适配层</div>
+          <div class="org en">BCNSCom Adapter Layer</div>
+          <div class="period">2026.08 - 2026.09</div>
+          <div class="desc zh">完整保留原 COM 协议语义：A/B 类请求、128 字节 COMBUFFER、功能码分区、按 IP 末字节寻址。</div>
+          <div class="desc en">Preserved full COM protocol semantics: A/B requests, 128-byte COMBUFFER, function-code zones, IP-based addressing.</div>
+        </div>
+      </li>
+
+      <li class="exp-item">
+        <div class="exp-logo">
+          <div class="logo-text">PointMap<span class="sub">点表工具</span></div>
+        </div>
+        <div class="exp-body">
+          <div class="org zh">点表提取工具</div>
+          <div class="org en">Point-Map Extraction Tool</div>
+          <div class="period">2026.07 - 2026.08</div>
+          <div class="desc zh">从现役 mdb 一键导出通道、控制器、采集段、测点→寄存器映射台账，覆盖 4 个项目、831 个测点。</div>
+          <div class="desc en">One-click export of channels, controllers, acquisition segments and point-to-register mapping from legacy mdb; 4 projects, 831 points covered.</div>
+        </div>
+      </li>
+
+    </ul>
+  </section>
+
+  <!-- ================= 成果 / 论文 ================= -->
+  <section class="section" id="publications">
+    <h2 class="section-title zh">成果</h2>
+    <h2 class="section-title en">Publications</h2>
+
+    <ul class="pub-list">
+      <li class="pub-item">
+        <span class="pub-title zh">BCNS 新一代参考实现：配置驱动的楼宇自控数据采集</span>
+        <span class="pub-title en">BCNS Next-Gen Reference Implementation: Config-Driven Data Acquisition for Building Control</span><br>
+        <span class="pub-venue zh">技术报告 / 内部文档</span>
+        <span class="pub-venue en">Technical Report / Internal Doc</span>, 2026.
+        <div class="pub-links">
+          <a href="#">[PDF]</a>
+          <a href="#">[Code]</a>
+        </div>
+      </li>
+      <li class="pub-item">
+        <span class="pub-title zh">多协议混合接入在冷站监控中的实践</span>
+        <span class="pub-title en">Multi-Protocol Integration in Cold-Station Monitoring</span><br>
+        <span class="pub-venue zh">工程实践总结</span>
+        <span class="pub-venue en">Engineering Practice Summary</span>, 2026.
+        <div class="pub-links">
+          <a href="#">[PDF]</a>
+        </div>
+      </li>
+      <li class="pub-item">
+        <span class="pub-title zh">点表提取工具：从现役库到 YAML 配置</span>
+        <span class="pub-title en">Point-Map Extraction: From Legacy DB to YAML Config</span><br>
+        <span class="pub-venue zh">工具文档</span>
+        <span class="pub-venue en">Tool Documentation</span>, 2026.
+        <div class="pub-links">
+          <a href="#">[Code]</a>
+        </div>
+      </li>
+    </ul>
+  </section>
+
+  <!-- ================= 项目 ================= -->
+  <section class="section" id="projects">
+    <h2 class="section-title zh">项目</h2>
+    <h2 class="section-title en">Projects</h2>
+
+    <div class="proj-grid">
+      <div class="proj-card">
+        <h4 class="zh">BCNS 采集服务</h4>
+        <h4 class="en">BCNS Collector</h4>
+        <p class="zh">配置驱动的 Modbus RTU-over-TCP 采集服务，支持多项目、多机型点表。</p>
+        <p class="en">Config-driven Modbus RTU-over-TCP collector supporting multiple projects and device profiles.</p>
+        <div class="tags"><span class="tag">Python</span><span class="tag">Modbus</span><span class="tag">YAML</span></div>
+      </div>
+      <div class="proj-card">
+        <h4 class="zh">BCNS 取数 API</h4>
+        <h4 class="en">BCNS Data API</h4>
+        <p class="zh">REST/JSON 接口，含零依赖版，适合现场老服务器。</p>
+        <p class="en">REST/JSON API with a zero-dependency edition for legacy on-site servers.</p>
+        <div class="tags"><span class="tag">FastAPI</span><span class="tag">REST</span></div>
+      </div>
+      <div class="proj-card">
+        <h4 class="zh">BCNSCom 适配层</h4>
+        <h4 class="en">BCNSCom Adapter</h4>
+        <p class="zh">保留原 COM 协议语义的标准适配层。</p>
+        <p class="en">Standard adapter preserving legacy COM protocol semantics.</p>
+        <div class="tags"><span class="tag">Protocol</span><span class="tag">Adapter</span></div>
+      </div>
+      <div class="proj-card">
+        <h4 class="zh">点表提取工具</h4>
+        <h4 class="en">Point-Map Tool</h4>
+        <p class="zh">从现役 mdb 一键导出点表台账与 YAML 配置片段。</p>
+        <p class="en">One-click export of point-map ledgers and YAML config snippets from legacy mdb.</p>
+        <div class="tags"><span class="tag">Tool</span><span class="tag">mdb</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 技能 ================= -->
+  <section class="section" id="skills">
+    <h2 class="section-title zh">技能</h2>
+    <h2 class="section-title en">Skills</h2>
+    <div class="skills">
+      <span class="skill">Python</span>
+      <span class="skill">Modbus RTU/TCP</span>
+      <span class="skill">YAML</span>
+      <span class="skill">FastAPI</span>
+      <span class="skill">SQLite / SQL Server</span>
+      <span class="skill">Vue3</span>
+      <span class="skill">Docker</span>
+      <span class="skill">NSSM</span>
+      <span class="skill">Git</span>
+    </div>
+  </section>
+
+  <div class="footer">
+    <span class="zh">© 2026 丁钰锋 · 保留所有权利</span>
+    <span class="en">© 2026 Yufeng Ding · All rights reserved</span>
+  </div>
+
+</div>
+
+<script>
+  function toggleLang() {
+    const body = document.body;
+    const btn = document.getElementById('langText');
+    if (body.classList.contains('lang-zh')) {
+      body.classList.remove('lang-zh');
+      body.classList.add('lang-en');
+      btn.textContent = '中文模式';
+      document.documentElement.lang = 'en';
+    } else {
+      body.classList.remove('lang-en');
+      body.classList.add('lang-zh');
+      btn.textContent = 'ENGLISH MODE';
+      document.documentElement.lang = 'zh-CN';
+    }
+  }
+</script>
+
 </body>
 </html>
