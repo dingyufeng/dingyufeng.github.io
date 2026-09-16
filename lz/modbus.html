@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modbus RTU 帧详解 · 01 03 40 00 00 0A 1B C4</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #f2f5f9;
+            font-family: 'Segoe UI', 'Roboto', 'Noto Sans', system-ui, sans-serif;
+            padding: 2rem 1rem;
+            display: flex;
+            justify-content: center;
+            line-height: 1.6;
+            color: #1e2b3c;
+        }
+
+        .container {
+            max-width: 1000px;
+            width: 100%;
+        }
+
+        /* 主卡片 */
+        .card {
+            background: #ffffff;
+            border-radius: 28px;
+            box-shadow: 0 20px 40px -12px rgba(0, 20, 40, 0.25);
+            padding: 2rem 2rem 2.2rem;
+            margin-bottom: 2rem;
+            transition: all 0.2s;
+        }
+
+        h1 {
+            font-size: 1.9rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.4rem;
+            color: #0a1e2f;
+        }
+
+        h1 small {
+            font-size: 1rem;
+            font-weight: 400;
+            color: #5e7a9a;
+            background: #e8f0fe;
+            padding: 0.2rem 0.9rem;
+            border-radius: 40px;
+            margin-left: 0.5rem;
+        }
+
+        .subhead {
+            color: #3d5a78;
+            margin-bottom: 1.8rem;
+            font-size: 1.05rem;
+            border-left: 4px solid #3b82f6;
+            padding-left: 1.2rem;
+            background: #f8fafc;
+            border-radius: 0 8px 8px 0;
+            padding: 0.8rem 1.2rem;
+        }
+
+        /* 字节可视化 */
+        .bytes-visual {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 0.2rem;
+            justify-content: center;
+            background: #0f1a2b;
+            padding: 1.5rem 0.8rem;
+            border-radius: 20px;
+            margin: 1.8rem 0 2rem;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        .byte-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 60px;
+        }
+
+        .byte-value {
+            font-size: 1.7rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #b7e1ff;
+            text-shadow: 0 0 8px #3b82f6;
+            background: #1e2f44;
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            border: 1px solid #2e4a6a;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .byte-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: #8aa9c9;
+            margin-top: 0.35rem;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .byte-sep {
+            font-size: 2rem;
+            color: #3f5b7a;
+            align-self: center;
+            padding: 0 0.15rem;
+        }
+
+        /* 表格样式 */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 6px;
+            margin: 1.5rem 0 1rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.8rem 1rem;
+            background: #eef4ff;
+            color: #1e3b5c;
+            font-weight: 600;
+            font-size: 0.9rem;
+            letter-spacing: 0.3px;
+            border-radius: 12px 0 0 12px;
+            width: 20%;
+        }
+
+        td {
+            background: #f9fcff;
+            padding: 0.8rem 1rem;
+            border-radius: 0 12px 12px 0;
+            color: #1e2b3c;
+            font-size: 0.98rem;
+            border-left: 3px solid #b7d4f0;
+            transition: all 0.1s;
+        }
+
+        tr:hover td {
+            background: #ffffff;
+            border-left-color: #3b82f6;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+        }
+
+        .code-badge {
+            font-family: 'JetBrains Mono', monospace;
+            background: #dbeafe;
+            padding: 0.2rem 0.7rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #1e4b8a;
+            white-space: nowrap;
+        }
+
+        .hint {
+            background: #fef9e7;
+            border-left: 6px solid #f59e0b;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            margin: 1.5rem 0;
+            color: #6b4b0a;
+            font-size: 0.98rem;
+        }
+
+        .hint strong {
+            color: #b45309;
+        }
+
+        .section-title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin: 2.2rem 0 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            color: #0a1e2f;
+        }
+
+        .section-title span {
+            background: #3b82f6;
+            width: 8px;
+            height: 28px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.2rem;
+            margin: 1rem 0;
+        }
+
+        .info-box {
+            background: #f8fcff;
+            border-radius: 18px;
+            padding: 1.2rem 1.4rem;
+            border: 1px solid #d6e6f8;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+        }
+
+        .info-box h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1e3b5c;
+            margin-bottom: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .info-box ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .info-box li {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+            color: #253d57;
+        }
+
+        .info-box li::before {
+            content: "▹";
+            color: #3b82f6;
+            font-weight: 700;
+        }
+
+        .accent {
+            color: #0f5c9e;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .note {
+            font-size: 0.9rem;
+            color: #5b7390;
+            margin-top: 0.4rem;
+            padding-left: 0.4rem;
+            border-left: 2px solid #cbd9e9;
+        }
+
+        .crc-highlight {
+            background: #e6f0ff;
+            border-radius: 8px;
+            padding: 0.1rem 0.4rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: #114b8a;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 2rem;
+            color: #6985a3;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 700px) {
+            .card {
+                padding: 1.5rem 1rem;
+            }
+            .byte-value {
+                font-size: 1.2rem;
+                padding: 0.1rem 0.3rem;
+            }
+            .byte-group {
+                min-width: 40px;
+            }
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+            h1 {
+                font-size: 1.5rem;
+                flex-wrap: wrap;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- 主卡片 -->
+    <div class="card">
+        <h1>
+            📡 Modbus RTU 帧详解
+            <small>01 03 40 00 00 0A 1B C4</small>
+        </h1>
+        <div class="subhead">
+            站号 <strong>01</strong> · 功能码 <strong>03</strong> · 起始地址 <strong>0x4000</strong> · 数量 <strong>10</strong> · CRC <strong>0xC41B</strong>
+        </div>
+
+        <!-- 字节可视化 -->
+        <div class="bytes-visual">
+            <div class="byte-group">
+                <div class="byte-value">01</div>
+                <div class="byte-label">站号</div>
+            </div>
+            <div class="byte-sep">·</div>
+            <div class="byte-group">
+                <div class="byte-value">03</div>
+                <div class="byte-label">功能码</div>
+            </div>
+            <div class="byte-sep">·</div>
+            <div class="byte-group">
+                <div class="byte-value">40</div>
+                <div class="byte-label">地址高</div>
+            </div>
+            <div class="byte-group">
+                <div class="byte-value">00</div>
+                <div class="byte-label">地址低</div>
+            </div>
+            <div class="byte-sep">·</div>
+            <div class="byte-group">
+                <div class="byte-value">00</div>
+                <div class="byte-label">数量高</div>
+            </div>
+            <div class="byte-group">
+                <div class="byte-value">0A</div>
+                <div class="byte-label">数量低</div>
+            </div>
+            <div class="byte-sep">·</div>
+            <div class="byte-group">
+                <div class="byte-value">1B</div>
+                <div class="byte-label">CRC 低</div>
+            </div>
+            <div class="byte-group">
+                <div class="byte-value">C4</div>
+                <div class="byte-label">CRC 高</div>
+            </div>
+        </div>
+
+        <!-- 总体描述 -->
+        <p style="font-size:1.05rem; margin-bottom:1.5rem;">
+            <span style="background:#e8f0fe; padding:0.3rem 1rem; border-radius:24px; font-weight:500;">
+                ⚡ 主站 → 1 号从站：读取保持寄存器 0x4000 开始的 10 个寄存器
+            </span>
+        </p>
+
+        <!-- 逐字段详细解释 -->
+        <div class="section-title"><span></span> 逐字段详解</div>
+
+        <table>
+            <tr>
+                <th>字段</th>
+                <th>值</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td><strong>站号</strong></td>
+                <td><span class="code-badge">01</span></td>
+                <td>
+                    Modbus 从站地址，范围 1~247（0x01~0xF7）。<br>
+                    <span class="note">00 为广播地址，所有从站接收但不回复；F8~FF 保留。</span>
+                </td>
+            </tr>
+            <tr>
+                <td><strong>功能码</strong></td>
+                <td><span class="code-badge">03</span></td>
+                <td>
+                    读保持寄存器（Read Holding Registers）。<br>
+                    保持寄存器可读写，通常为 16 位（2 字节），用于存储参数、测量值等。
+                </td>
+            </tr>
+            <tr>
+                <td><strong>起始地址</strong></td>
+                <td><span class="code-badge">40 00</span></td>
+                <td>
+                    大端序：<span class="accent">0x4000 = 16384</span>（协议地址）。<br>
+                    <span class="note">⚠️ 协议地址从 0 开始，文档地址常写成 40001 等 5 位格式。<br>
+                    此处 0x4000 对应文档地址 40001 + 0x4000 = 56385？不，需按设备手册映射。通常 0x4000 是设备内部定义。</span>
+                </td>
+            </tr>
+            <tr>
+                <td><strong>寄存器数量</strong></td>
+                <td><span class="code-badge">00 0A</span></td>
+                <td>
+                    大端序：<span class="accent">0x000A = 10</span>（十进制）。<br>
+                    读取从 0x4000 开始的连续 10 个寄存器：<br>
+                    0x4000, 0x4001, 0x4002, … , 0x4009。<br>
+                    共 10 × 2 = 20 字节数据。
+                </td>
+            </tr>
+            <tr>
+                <td><strong>CRC 校验</strong></td>
+                <td><span class="code-badge">1B C4</span></td>
+                <td>
+                    CRC-16/MODBUS，占 2 字节。<br>
+                    传输时<strong>低字节在前</strong>，所以实际 CRC 值为 <span class="accent">0xC41B</span>。<br>
+                    <span class="note">计算范围：站号 ~ 最后一个数据字节（01 03 40 00 00 0A）<br>
+                    多项式 0xA001（反向 0x8005），初始值 0xFFFF。</span>
+                </td>
+            </tr>
+        </table>
+
+        <!-- 知识点块 -->
+        <div class="section-title"><span></span> 关键知识点</div>
+        <div class="grid-2">
+            <div class="info-box">
+                <h3>📌 大端序（Big-Endian）</h3>
+                <ul>
+                    <li>地址、数量均为 2 字节，<strong>高字节在前</strong></li>
+                    <li><span class="accent">40 00 → 0x4000</span></li>
+                    <li><span class="accent">00 0A → 0x000A</span></li>
+                    <li>CRC 除外：<strong>低字节在前</strong>（小端）</li>
+                </ul>
+            </div>
+            <div class="info-box">
+                <h3>📌 CRC-16/MODBUS</h3>
+                <ul>
+                    <li>占 2 字节，传输顺序：<strong>低字节 + 高字节</strong></li>
+                    <li><span class="accent">1B C4</span> 表示 CRC 值 = <span class="accent">0xC41B</span></li>
+                    <li>接收方重新计算并比对，错误则丢弃</li>
+                </ul>
+            </div>
+            <div class="info-box">
+                <h3>📌 功能码 03 响应</h3>
+                <ul>
+                    <li>正常响应：<span class="accent">01 03 14 [20字节数据] [CRC]</span></li>
+                    <li>字节数 0x14 = 20（10 寄存器 × 2 字节）</li>
+                    <li>异常响应：<span class="accent">01 83 02 [CRC]</span>（功能码最高位置 1）</li>
+                </ul>
+            </div>
+            <div class="info-box">
+                <h3>📌 帧长度</h3>
+                <ul>
+                    <li>本帧共 <strong>8 字节</strong>（固定请求长度）</li>
+                    <li>站号(1) + 功能码(1) + 地址(2) + 数量(2) + CRC(2)</li>
+                    <li>无数据字段，因为是“请求”读取</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 修正提示 -->
+        <div class="hint">
+            <strong>🔍 图中标注修正：</strong> 原图中 <code>00 0A</code> 和 <code>1B C4</code> 可能被合并标注为 CRC，但正确对应关系是：<br>
+            <code>00 0A</code> → 寄存器数量（10 个）&nbsp;&nbsp;|&nbsp;&nbsp;
+            <code>1B C4</code> → CRC 校验（占 2 字节）。<br>
+            即：站号(1) + 功能码(1) + 起始地址(2) + 数量(2) + CRC(2) = <strong>8 字节</strong>。
+        </div>
+
+        <!-- 异常码表格 -->
+        <div class="section-title"><span></span> 常见异常码</div>
+        <table style="margin-top:0.8rem;">
+            <tr><th style="width:15%;">异常码</th><th>含义</th></tr>
+            <tr><td><span class="code-badge">01</span></td><td>非法功能码</td></tr>
+            <tr><td><span class="code-badge">02</span></td><td>非法数据地址</td></tr>
+            <tr><td><span class="code-badge">03</span></td><td>非法数据值</td></tr>
+            <tr><td><span class="code-badge">04</span></td><td>从站设备故障</td></tr>
+            <tr><td><span class="code-badge">05</span></td><td>确认（正在处理）</td></tr>
+            <tr><td><span class="code-badge">06</span></td><td>从站忙</td></tr>
+        </table>
+
+        <!-- 总结 -->
+        <div style="background: linear-gradient(135deg, #0f1a2b, #1e2f44); color: #e0f0ff; padding: 1.5rem 2rem; border-radius: 20px; margin-top: 2.2rem;">
+            <p style="font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 500;">📋 一句话总结</p>
+            <p style="font-size: 1rem; opacity: 0.95;">
+                该帧是 Modbus RTU 主站请求：向 1 号从站发送功能码 03，读取从保持寄存器 0x4000 开始的 10 个寄存器（共 20 字节数据）。帧总长 8 字节，CRC 为 0xC41B（传输顺序 1B C4）。
+            </p>
+        </div>
+
+    </div>
+
+    <footer>
+        ⚙️ 学习卡片 · Modbus RTU 帧解析 · 可保存为 HTML 随时查阅
+    </footer>
+
+</div>
+</body>
+</html>
