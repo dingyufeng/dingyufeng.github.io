@@ -326,14 +326,69 @@ body.mobi{
   #stagewrap{background-size:34px 34px,34px 34px}
 }
 
-/* 横屏手机 / 矮窗口: 竖向空间紧张, 收起 KPI 条改用 SVG 内概览盘 */
+/* 横屏 / 矮窗口 —— 移动端的**完整形态**:
+   1966×780 ≈ 2.52:1, 横屏手机(844×390 ≈ 2.16:1)宽比最接近, contain 后几乎铺满,
+   因此横屏收起 KPI 条, 把竖向空间全部让给工艺图, 默认视图直接给"全图" */
 @media(max-height:540px) and (orientation:landscape){
   body.mobi #m-kpi{display:none}
-  #topbar{min-height:34px;padding:4px 10px}
-  #m-nav{padding:5px 10px calc(5px + env(safe-area-inset-bottom,0px))}
-  .mn-b{padding:5px 11px;font-size:11px}
-  #drawer{height:min(88vh,440px)}
+  body.mobi #topbar{min-height:32px;padding:3px 9px;gap:8px}
+  body.mobi .brand h1{font-size:11.5px;white-space:nowrap}
+  body.mobi .tbtn{height:24px;padding:0 8px;font-size:11px}
+  body.mobi .tb-item{font-size:10.5px}
+  body.mobi #m-nav{padding:4px 10px calc(4px + env(safe-area-inset-bottom,0px));gap:5px}
+  body.mobi .mn-b{padding:4px 11px;font-size:11px;border-radius:14px}
+  body.mobi #drawer{height:min(88vh,420px)}
+  body.mobi #m-hint{bottom:10px;font-size:11px;padding:6px 12px}
 }
+
+/* ---------- 10.2 竖屏手机: 横屏引导遮罩 ----------
+   竖屏 ≈ 0.46:1 与图宽比 2.52:1 相差 5 倍, 任何排版都无法完整呈现,
+   所以竖屏主动引导横屏; 用户仍可选择"继续竖屏浏览"(本会话不再打扰) */
+#m-rot{display:none}
+.mobi-only{display:none}
+body.mobi .mobi-only{display:inline-block}
+body.mobi.portrait #m-rot{
+  display:grid;place-items:center;position:fixed;inset:0;z-index:120;padding:22px;
+  background:
+    radial-gradient(680px 420px at 50% 10%, rgba(0,180,216,.16), transparent 62%),
+    var(--bg);
+  backdrop-filter:blur(7px);
+}
+body.light.mobi.portrait #m-rot{
+  background:
+    radial-gradient(680px 420px at 50% 10%, rgba(0,150,200,.12), transparent 60%),
+    var(--bg);
+}
+.rot-card{
+  width:100%;max-width:326px;text-align:center;padding:22px 20px 18px;border-radius:16px;
+  background:var(--panel);border:1px solid var(--line-2);box-shadow:var(--shadow);
+}
+/* 手机由竖转横的循环示意 */
+.rot-ph{
+  width:46px;height:74px;margin:2px auto 16px;border:2.5px solid var(--acs);border-radius:9px;
+  position:relative;transform-origin:50% 50%;
+  box-shadow:0 0 0 1px rgba(0,212,255,.25),0 6px 18px rgba(0,150,200,.28);
+  animation:rot 2.6s cubic-bezier(.5,0,.5,1) infinite;
+}
+.rot-ph i{position:absolute;left:50%;bottom:4px;width:14px;height:2.5px;border-radius:2px;
+  background:var(--line-2);transform:translateX(-50%)}
+.rot-ph::before{content:"";position:absolute;inset:6px 5px 12px;border-radius:3px;
+  background:linear-gradient(160deg,rgba(0,212,255,.32),rgba(0,212,255,.06))}
+@keyframes rot{
+  0%,16%{transform:rotate(0deg)} 48%,74%{transform:rotate(-90deg)} 100%{transform:rotate(0deg)}
+}
+.rot-card h3{margin:0 0 8px;font-size:16px;font-weight:650;color:var(--tx)}
+.rot-card p{margin:0 0 17px;font-size:12px;line-height:1.68;color:var(--tx-2);
+  text-align:left}
+.rot-card p b{color:var(--acs);font-family:var(--ff-num)}
+.rot-b{
+  display:block;width:100%;padding:11px 14px;border-radius:9px;font-size:13px;cursor:pointer;
+  font-family:var(--ff);font-weight:650;border:1px solid var(--acs);
+  background:var(--acs);color:#04121C;-webkit-tap-highlight-color:transparent;
+}
+.rot-b.ghost{margin-top:9px;background:transparent;border-color:var(--line-2);
+  color:var(--tx-2);font-weight:400}
+.rot-b.ghost:hover{color:var(--tx);border-color:var(--acs)}
 
 </style>
 </head>
@@ -353,6 +408,7 @@ body.mobi{
     <div class="tb-item opt"><span>协议</span><b>Modbus-TCP</b></div>
     <div class="tb-item"><span>刷新</span><b class="num" id="tb-scan">5.0</b><span>s</span></div>
     <div class="tb-item"><span>系统时间</span><b class="num" id="tb-clock">--:--:--</b></div>
+    <button class="tbtn mobi-only" id="btn-rot" title="横屏查看 (全屏并尝试锁定横屏)">⇄ 横屏</button>
     <button class="tbtn" id="btn-theme" title="切换深色/白昼模式">◐ 白昼</button>
     <button class="tbtn" id="btn-fit" title="复位视图 (100%)">⤢ 复位</button>
     <button class="tbtn" id="btn-flow" aria-pressed="true" title="显示/隐藏流体粒子">≈ 流场</button>
@@ -416,6 +472,20 @@ body.mobi{
 </div>
 
 <div id="tip"></div>
+
+<!-- ═══ 竖屏手机: 横屏引导遮罩 ═══
+     1966×780 的工艺流程图接近 2.52:1 宽比, 竖屏(≈0.46:1)下无论怎么排都看不全,
+     因此竖屏时主动引导横屏; 横屏布局才是移动端的完整形态 -->
+<div id="m-rot" role="dialog" aria-label="建议横屏查看">
+  <div class="rot-card">
+    <div class="rot-ph"><i></i></div>
+    <h3>建议横屏查看</h3>
+    <p>本系统为 <b>1966 × 780</b> 的冷站工艺流程图（宽比 2.5 : 1），
+       竖屏下设备与管线无法完整呈现。<br>旋转手机即可获得完整视图。</p>
+    <button id="rot-go" class="rot-b">⛶ 全屏并横屏查看</button>
+    <button id="rot-skip" class="rot-b ghost">继续竖屏浏览</button>
+  </div>
+</div>
 <script>
 "use strict";
 /* ==========================================================================
@@ -2299,7 +2369,33 @@ function applyLayoutMode() {
   const on = isTouch();
   const chg = document.body.classList.contains("mobi") !== on;
   document.body.classList.toggle("mobi", on);
+  if (!on) document.body.classList.remove("portrait");
   return chg;
+}
+
+/* 竖屏判定 —— 只对手机(窄屏)生效, 平板/窄窗口不打扰
+   竖屏下主动引导横屏, 因为 1966×780 ≈ 2.52:1 的工艺流程在 ≈0.46:1 的竖屏里
+   无论如何排版都无法完整呈现; 横屏布局才是移动端的完整形态 */
+let rotDismissed = false, lastPortrait = null;
+const needRotate = () =>
+  isTouch() && window.innerWidth < 620 && window.innerHeight > window.innerWidth;
+function updateOrientation() {
+  const p = needRotate();
+  const chg = lastPortrait !== p;
+  lastPortrait = p;
+  document.body.classList.toggle("portrait", p && !rotDismissed);
+  return chg;
+}
+/* 请求全屏并尝试锁定横屏 (Android Chrome 支持; iOS Safari 无 screen.orientation.lock,
+   会退化为"请手动旋转", 遮罩收起后不影响使用) */
+async function lockLandscape() {
+  try {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen)
+      await el.requestFullscreen({navigationUI: "hide"});
+    if (screen.orientation && screen.orientation.lock)
+      await screen.orientation.lock("landscape");
+  } catch (e) { /* 不支持则静默降级, 由用户手动旋转 */ }
 }
 
 /* 视窗边界约束: 图比屏幕大时不允许拖出画面, 图比屏幕小时居中 */
@@ -2349,12 +2445,19 @@ function gotoRegion(k) {
   const r = REG[k];
   if (r) zoomTo(r[0], r[1], r[2], r[3]);
 }
-/* 初始视图: 桌面端整体自适应; 触屏端按高度铺满并聚焦冷水机组区, 同时提示手势 */
+/* 初始视图:
+   桌面       → 整体自适应 (contain)
+   触屏·横屏  → 宽比 2.16:1 接近设计的 2.52:1, "全图"就是最佳视图, 几乎铺满
+   触屏·竖屏  → 按高度铺满并聚焦冷水机组区 (同时由遮罩引导转横屏) */
 function bootView() {
   fitView();
   if (!isTouch()) return;
-  view.s = clamp(wrap.clientHeight / H, view.base, view.base * 10);
-  gotoRegion("chiller");
+  if (window.innerWidth >= window.innerHeight) {
+    gotoRegion("all");
+  } else {
+    view.s = clamp(wrap.clientHeight / H, view.base, view.base * 10);
+    gotoRegion("chiller");
+  }
   const h = document.getElementById("m-hint");
   if (h) { h.classList.add("on"); setTimeout(() => h.classList.remove("on"), 4600); }
 }
@@ -2427,6 +2530,31 @@ wrap.addEventListener("dblclick", () => gotoRegion("all"));
 document.querySelectorAll("#m-nav .mn-b").forEach(b => {
   b.onclick = () => gotoRegion(b.dataset.region);
 });
+
+/* 竖屏引导遮罩: 全屏横屏 / 继续竖屏; 顶栏"⇄ 横屏"可随时重新唤起 */
+document.getElementById("rot-go").onclick = async () => {
+  rotDismissed = true;                       // 不再自动弹出
+  document.body.classList.remove("portrait");
+  await lockLandscape();
+  setTimeout(relayout, 420);                 // 全屏/锁屏后视口变化, 兜底重算一次
+};
+document.getElementById("rot-skip").onclick = () => {
+  rotDismissed = true;                       // 本会话不再打扰
+  document.body.classList.remove("portrait");
+};
+document.getElementById("btn-rot").onclick = () => {
+  rotDismissed = false;
+  updateOrientation();
+};
+
+/* 尺寸/朝向变化: 只在布局模式或朝向真的变了时重给初始视角,
+   仅尺寸变化则保持当前工艺分区 */
+function relayout() {
+  const chg = applyLayoutMode(), chgO = updateOrientation();
+  view.base = Math.min(wrap.clientWidth / W, wrap.clientHeight / H);
+  if (chg || chgO) bootView(); else gotoRegion(curRegion);
+  fitCanvas();
+}
 
 /* 移动端 KPI 条 —— 复用同一份遥测数据, 供小屏直接读数 */
 function bindMobileKPI() {
@@ -2568,18 +2696,14 @@ function boot() {
   fitCanvas();
   readPalette();
   applyLayoutMode();                 // 先定布局模式 (影响可视高度), 再算初始视图
-  bootView();                        // 桌面整体自适应 / 触屏按高度铺满+聚焦机组区
+  updateOrientation();               // 竖屏手机 → 弹出横屏引导遮罩
+  bootView();                        // 桌面整体自适应 / 横屏全图 / 竖屏聚焦机组
   bindMobileKPI();                   // 移动端 KPI 条接入同一份遥测
   refreshData();
   syncSpeed();
   /* 首次进入不自动展开面板, 保证全系统视图完整; 悬浮即看参数, 点击展开详情 */
-  window.addEventListener("resize", () => {
-    const chg = applyLayoutMode();
-    view.base = Math.min(wrap.clientWidth / W, wrap.clientHeight / H);
-    if (chg) bootView();             // 布局模式切换 (如横竖屏) → 重新给初始视角
-    else gotoRegion(curRegion);      // 仅尺寸变化 → 保持当前工艺分区视角
-    fitCanvas();
-  });
+  window.addEventListener("resize", relayout);
+  window.addEventListener("orientationchange", () => setTimeout(relayout, 280));
   setInterval(() => { refreshData(); syncSpeed(); }, SCAN * 1000);
   requestAnimationFrame(loop);
   console.log("%c冷站网络管控系统 V2.0 已启动", "color:#00D4FF;font-weight:700",
