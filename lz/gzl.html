@@ -1,0 +1,2594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>港中旅集团维景国际大酒店 · 冷站网络管控系统</title>
+<style>
+/* ==========================================================================
+   冷站网络管控系统 (Cold Station Network Control System)
+   架构: SVG 拓扑层 (设备/管道/阀门/传感器) + Canvas 粒子层 (流体动态)
+   规范: ASHRAE Handbook-HVAC Systems and Equipment 图例
+         GB/T 50114 暖通空调制图标准
+         GB 50736 民用建筑供暖通风与空气调节设计规范
+   ========================================================================== */
+
+/* ---------- 1. 设计令牌 (Design Tokens) ---------- */
+:root{
+  /* 冷源色 —— 冷冻水(一次泵变流量系统) */
+  --cw-sup:#00B4D8;        /* 冷冻水供水 7.0℃ 亮蓝 */
+  --cw-sup-deep:#0091C2;   /* 供水深调 */
+  --cw-ret:#0E6FA8;        /* 冷冻水回水 12.5℃ 深蓝 */
+  --cw-ret-deep:#0A5580;
+  /* 冷却水(开式循环) */
+  --cdw-sup:#4CAF50;       /* 冷却水供水(塔出) 32.1℃ 绿 */
+  --cdw-sup-deep:#2E7D32;
+  --cdw-ret:#E8833A;       /* 冷却水回水(塔进) 37.2℃ 橙 */
+  --cdw-ret-deep:#C4671F;
+  /* 冷凝水 */
+  --cond:#FF9800;
+  /* 状态色 */
+  --st-run:#2A9D8F;        /* 运行 */
+  --st-stop:#5A6473;       /* 停止 */
+  --st-warn:#F4A261;       /* 预警 */
+  --st-fault:#E63946;      /* 故障 */
+  /* 界面 */
+  --bg:#1a1f2e;
+  --bg-2:#151a26;
+  --panel:rgba(23,29,42,.92);
+  --panel-2:rgba(30,38,54,.86);
+  --line:rgba(120,145,190,.22);
+  --line-2:rgba(120,145,190,.38);
+  --grid:rgba(90,120,175,.13);
+  --tx:#E8EEF7;
+  --tx-2:#A9B8D0;
+  --tx-3:#6F7F99;
+  --acs:#00D4FF;
+  --acs-2:#38BDF8;
+  --shadow:0 8px 28px rgba(0,0,0,.42);
+  --r:6px;
+  --ff:"Inter","Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  --ff-num:"JetBrains Mono","SFMono-Regular",Consolas,"Roboto Mono",monospace;
+}
+
+/* 浅色 / 白昼模式 (现场巡视用, 强光下可读性优先) */
+body.light{
+  --bg:#EAF0F7; --bg-2:#F5F8FC;
+  --panel:rgba(255,255,255,.94); --panel-2:rgba(248,251,255,.9);
+  --line:rgba(40,70,120,.16); --line-2:rgba(40,70,120,.3);
+  --grid:rgba(60,100,160,.10);
+  --tx:#12203A; --tx-2:#42557A; --tx-3:#7B8CA8;
+  --cw-sup:#0A93C4; --cw-ret:#125E92;
+  --cdw-sup:#2E8B3D; --cdw-sup-deep:#1E6629; --cdw-ret:#C46A1B; --cdw-ret-deep:#9C5010;
+  --st-run:#1E8377; --st-stop:#8A96A8;
+  --shadow:0 6px 20px rgba(30,50,90,.14);
+}
+
+/* ---------- 2. 基础 ---------- */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--tx);font-family:var(--ff);
+  font-size:13px;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(1200px 600px at 12% -8%, rgba(0,180,216,.10), transparent 62%),
+    radial-gradient(1000px 520px at 96% 4%, rgba(76,175,80,.08), transparent 60%),
+    linear-gradient(180deg,var(--bg) 0%,var(--bg-2) 100%);
+}
+body.light{background-image:
+    radial-gradient(1200px 600px at 12% -10%, rgba(0,150,200,.10), transparent 60%),
+    linear-gradient(180deg,var(--bg) 0%,var(--bg-2) 100%);}
+num,.num{font-family:var(--ff-num);font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+
+/* ---------- 3. 布局骨架 ---------- */
+#app{display:flex;flex-direction:column;height:100vh;position:relative;z-index:1}
+
+/* 顶栏 */
+#topbar{
+  flex:0 0 auto;height:46px;display:flex;align-items:center;gap:14px;
+  padding:0 16px;border-bottom:1px solid var(--line);
+  background:linear-gradient(90deg,rgba(0,180,216,.10),rgba(0,0,0,0) 42%),
+             var(--panel-2);
+  backdrop-filter:blur(14px);position:relative;z-index:40;
+}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand .mk{
+  width:26px;height:26px;border-radius:7px;flex:0 0 auto;position:relative;
+  background:linear-gradient(140deg,var(--acs),#0B7FA8 70%);
+  box-shadow:0 0 0 1px rgba(0,212,255,.35),0 3px 10px rgba(0,150,200,.35);
+}
+.brand .mk::after{
+  content:"";position:absolute;inset:6px;border-radius:3px;
+  border:1.6px solid rgba(255,255,255,.88);border-top-color:transparent;
+  animation:spin 5.5s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.brand h1{
+  font-size:15px;font-weight:650;margin:0;letter-spacing:.4px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;
+}
+.brand .sub{font-size:11px;color:var(--tx-3);letter-spacing:.6px;white-space:nowrap}
+.brand .tag{
+  font-size:10px;padding:1px 6px;border-radius:3px;letter-spacing:.8px;
+  border:1px solid rgba(0,212,255,.4);color:var(--acs);
+  background:rgba(0,212,255,.08);flex:0 0 auto;
+}
+.spacer{flex:1 1 auto}
+.tb-item{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--tx-2);white-space:nowrap}
+.tb-item b{color:var(--tx);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--st-run);flex:0 0 auto;
+     box-shadow:0 0 0 3px rgba(42,157,143,.18)}
+.dot.live{animation:pulse 1.9s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.34}}
+.tbtn{
+  height:26px;padding:0 10px;border-radius:5px;cursor:pointer;font-size:11.5px;
+  border:1px solid var(--line-2);background:var(--panel);color:var(--tx-2);
+  font-family:var(--ff);transition:.16s;white-space:nowrap;
+}
+.tbtn:hover{color:var(--tx);border-color:var(--acs);background:rgba(0,212,255,.10)}
+.tbtn[aria-pressed="true"]{color:#04121C;background:var(--acs);border-color:var(--acs);font-weight:600}
+/* ---------- 4. 舞台 (固定设计空间 1966x780, 等比缩放 + 拖拽平移 + 滚轮缩放) ---------- */
+#stagewrap{
+  flex:1 1 auto;position:relative;overflow:hidden;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:52px 52px,52px 52px;
+  cursor:grab;touch-action:none;
+}
+#stagewrap.grabbing{cursor:grabbing}
+#stage{
+  position:absolute;left:0;top:0;width:1966px;height:780px;
+  transform-origin:0 0;will-change:transform;
+}
+#stage svg{position:absolute;left:0;top:0;width:1966px;height:780px;display:block}
+#fx{position:absolute;left:0;top:0;width:1966px;height:780px;pointer-events:none}
+
+/* ---------- 5. KPI 概览仪表盘 (SVG 内绘制, 见 JS) ---------- */
+
+/* ---------- 6. 详情抽屉 (设备参数面板) ---------- */
+#drawer{
+  position:absolute;top:0;right:0;width:302px;height:100%;
+  background:var(--panel);backdrop-filter:blur(18px);
+  border-left:1px solid var(--line-2);box-shadow:var(--shadow);
+  transform:translateX(104%);transition:transform .28s cubic-bezier(.4,0,.2,1);
+  z-index:50;display:flex;flex-direction:column;
+}
+#drawer.open{transform:translateX(0)}
+.dr-hd{
+  flex:0 0 auto;padding:12px 14px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:10px;
+}
+.dr-hd .ic{width:30px;height:30px;border-radius:7px;flex:0 0 auto;
+  background:rgba(0,212,255,.12);border:1px solid rgba(0,212,255,.3);
+  display:grid;place-items:center;color:var(--acs);font-size:15px}
+.dr-hd .tt h3{margin:0;font-size:14px;font-weight:650}
+.dr-hd .tt p{margin:2px 0 0;font-size:11px;color:var(--tx-3)}
+.dr-x{margin-left:auto;width:24px;height:24px;border-radius:5px;cursor:pointer;
+  border:1px solid var(--line-2);background:transparent;color:var(--tx-2);
+  font-size:14px;line-height:1;display:grid;place-items:center;font-family:var(--ff)}
+.dr-x:hover{color:var(--st-fault);border-color:var(--st-fault)}
+.dr-bd{flex:1 1 auto;overflow-y:auto;padding:12px 14px 26px}
+.dr-bd::-webkit-scrollbar{width:7px}
+.dr-bd::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+.sec-t{
+  font-size:10.5px;letter-spacing:1.4px;color:var(--tx-3);margin:14px 0 7px;
+  display:flex;align-items:center;gap:7px;
+}
+.sec-t:first-child{margin-top:2px}
+.sec-t::after{content:"";flex:1;height:1px;background:var(--line)}
+.kv{display:grid;grid-template-columns:1fr auto;gap:4px 10px;font-size:12px}
+.kv .k{color:var(--tx-2)}
+.kv .v{font-family:var(--ff-num);color:var(--tx);font-weight:600}
+.kv .v em{font-style:normal;color:var(--tx-3);font-size:10.5px;margin-left:2px;font-weight:400}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:3px}
+.bar i{display:block;height:100%;border-radius:3px;transition:width .5s ease}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 8px;
+  border-radius:20px;border:1px solid currentColor;font-weight:600}
+.pill.run{color:var(--st-run)} .pill.stop{color:var(--st-stop)}
+.pill.warn{color:var(--st-warn)} .pill.fault{color:var(--st-fault)}
+
+/* ---------- 7. 悬浮读数气泡 (Tooltip) ---------- */
+#tip{
+  position:fixed;z-index:80;pointer-events:none;opacity:0;transition:opacity .13s;
+  background:var(--panel);backdrop-filter:blur(14px);
+  border:1px solid var(--line-2);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:8px 10px;font-size:11.5px;min-width:150px;
+}
+#tip.on{opacity:1}
+#tip .t-h{font-weight:650;font-size:12px;margin-bottom:5px;display:flex;
+  align-items:center;gap:6px;color:var(--tx)}
+#tip .t-h s{width:7px;height:7px;border-radius:50%;background:var(--acs);
+  text-decoration:none;flex:0 0 auto}
+#tip .t-r{display:flex;justify-content:space-between;gap:14px;color:var(--tx-2);
+  padding:1.5px 0;font-size:11px}
+#tip .t-r b{font-family:var(--ff-num);color:var(--tx);font-weight:600}
+#tip .t-f{margin-top:5px;padding-top:5px;border-top:1px solid var(--line);
+  font-size:10.5px;color:var(--acs)}
+
+/* ---------- 8. 告警条 ---------- */
+#alarm{
+  position:absolute;left:50%;top:12px;transform:translate(-50%,-140%);
+  z-index:60;display:flex;align-items:center;gap:10px;padding:8px 16px;
+  border-radius:var(--r);background:rgba(230,57,70,.14);
+  border:1px solid rgba(230,57,70,.5);color:#FFC9CE;font-size:12.5px;
+  backdrop-filter:blur(12px);box-shadow:var(--shadow);transition:transform .3s;
+  max-width:70%;
+}
+body.light #alarm{color:#8E1B24;background:rgba(230,57,70,.1)}
+#alarm.on{transform:translate(-50%,0)}
+#alarm .ai{width:18px;height:18px;border-radius:50%;background:var(--st-fault);
+  display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700;
+  flex:0 0 auto;animation:pulse 1.1s infinite}
+
+/* ---------- 9. 设备高亮联动 (SVG class 控制) ---------- */
+.eq{cursor:pointer}
+.eq .hit{fill:transparent}
+.eq.hot .shell,.eq.hot .body{filter:url(#glow)}
+#layer-eq .eq:hover .frame,#layer-eq .eq.on .frame{
+  stroke:var(--acs);stroke-width:2}
+.dim{opacity:.26;filter:saturate(.2);transition:opacity .2s}
+.lit{opacity:1}
+/* 呼吸灯 */
+.breathe{animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.30}50%{opacity:1}}
+/* 故障闪烁 */
+.blink{animation:blink 1s steps(1,end) infinite}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.12}}
+/* 流体虚线 (SVG 兜底层, 与 Canvas 粒子叠加) */
+.flowline{stroke-dasharray:2 14;animation:dash 1.05s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-16}}
+.off .flowline{animation-play-state:paused;opacity:.14}
+
+/* ---------- 10. 响应式 ---------- */
+@media(max-width:900px){
+  .brand .sub,.brand .tag{display:none}
+  #topbar{gap:9px;padding:0 11px;height:42px}
+  #drawer{width:min(88vw,326px)}
+  .tb-item.opt{display:none}
+}
+@media(max-width:620px){
+  .brand h1{font-size:12.5px}
+  .tb-item{font-size:10.5px}
+}
+
+/* ---------- 10.1 移动端 / 触屏 ----------
+   策略: 1966×780 的工艺流程图不整体缩小 (缩到手机宽度后文字不可读),
+   改为「顶部 HTML KPI 条 (可读) + 中部可缩放拖拽画布 + 底部区域快捷定位」。
+   默认视图按高度铺满并聚焦冷水机组/水泵区, 其余区域用底部按钮一键飞入。 */
+#m-kpi,#m-nav,#m-hint{display:none}
+
+/* 移动端布局由脚本统一判定 (isTouch) 并挂在 body.mobi 上 ——
+   不再用 CSS 宽度断点单独判断, 避免「横屏手机宽度 > 断点」时丢失导航栏 */
+body.mobi{
+  /* 顶栏: 折行 + 紧凑按钮 */
+  #topbar{height:auto;min-height:38px;flex-wrap:wrap;gap:6px;padding:5px 10px}
+  .brand h1{font-size:12px;letter-spacing:0;white-space:normal;line-height:1.25}
+  .tbtn{padding:5px 8px;font-size:11px}
+  #tb-clock{font-size:11px}
+  /* 移动端 KPI 条 */
+  #m-kpi{
+    display:flex;flex:0 0 auto;gap:7px;padding:7px 10px;overflow-x:auto;
+    border-bottom:1px solid var(--line);background:var(--panel-2);
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;
+  }
+  #m-kpi::-webkit-scrollbar{display:none}
+  .mk-card{
+    flex:0 0 auto;min-width:108px;padding:6px 10px;border-radius:9px;
+    background:var(--panel);border:1px solid var(--line);line-height:1.2;
+  }
+  .mk-l{display:block;font-size:9.5px;color:var(--tx-3);letter-spacing:.3px;white-space:nowrap}
+  .mk-v{font-size:16.5px;font-weight:700;color:var(--tx);letter-spacing:-.4px;
+    font-family:var(--ff-num);font-variant-numeric:tabular-nums}
+  .mk-u{font-size:9.5px;color:var(--tx-3);margin-left:3px}
+  .mk-card.good .mk-v{color:var(--st-run)}
+  .mk-card.hot .mk-v{color:var(--st-warn)}
+  /* 详情抽屉 → 底部抽屉 (拇指可达) */
+  #drawer{
+    top:auto;bottom:0;left:0;right:0;width:auto;height:min(76vh,540px);
+    border-left:none;border-top:1px solid var(--line-2);border-radius:13px 13px 0 0;
+    transform:translateY(103%);
+  }
+  #drawer.open{transform:translateY(0)}
+  #drawer::before{
+    content:"";position:absolute;left:50%;top:6px;width:38px;height:3.5px;border-radius:2px;
+    background:var(--line-2);transform:translateX(-50%);
+  }
+  .dr-hd{padding:15px 14px 10px}
+  .dr-hd .ic{width:28px;height:28px}
+  .dr-bd{padding:10px 14px calc(18px + env(safe-area-inset-bottom,0px))}
+  /* 告警条收窄 */
+  #alarm{max-width:94vw;font-size:11.5px;padding:7px 12px;top:9px}
+  /* 区域快捷定位 */
+  #m-nav{
+    display:flex;flex:0 0 auto;gap:6px;padding:7px 10px calc(7px + env(safe-area-inset-bottom,0px));
+    overflow-x:auto;border-top:1px solid var(--line);background:var(--panel-2);
+    scrollbar-width:none;
+  }
+  #m-nav::-webkit-scrollbar{display:none}
+  .mn-b{
+    flex:0 0 auto;padding:7px 13px;border-radius:16px;font-size:12px;font-family:var(--ff);
+    border:1px solid var(--line-2);background:transparent;color:var(--tx-2);
+    -webkit-tap-highlight-color:transparent;white-space:nowrap;
+  }
+  .mn-b[aria-pressed="true"]{background:var(--acs);border-color:var(--acs);
+    color:#04121C;font-weight:650}
+  /* 首次进入的手势提示 */
+  #m-hint{
+    display:block;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+    z-index:45;padding:7px 14px;border-radius:18px;font-size:11.5px;white-space:nowrap;
+    background:rgba(10,16,26,.84);border:1px solid var(--line-2);color:var(--tx);
+    opacity:0;transition:opacity .45s;pointer-events:none;backdrop-filter:blur(8px);
+  }
+  body.light #m-hint{background:rgba(255,255,255,.94)}
+  #m-hint.on{opacity:1}
+  /* 画布网格加密, 小屏不显空旷 */
+  #stagewrap{background-size:34px 34px,34px 34px}
+}
+
+/* 横屏手机 / 矮窗口: 竖向空间紧张, 收起 KPI 条改用 SVG 内概览盘 */
+@media(max-height:540px) and (orientation:landscape){
+  body.mobi #m-kpi{display:none}
+  #topbar{min-height:34px;padding:4px 10px}
+  #m-nav{padding:5px 10px calc(5px + env(safe-area-inset-bottom,0px))}
+  .mn-b{padding:5px 11px;font-size:11px}
+  #drawer{height:min(88vh,440px)}
+}
+
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ 顶栏 ═══ -->
+  <header id="topbar">
+    <div class="brand">
+      <div class="mk"></div>
+      <h1>港中旅集团维景国际大酒店 · 冷站网络管控系统</h1>
+      <span class="tag">BCNS · BAS</span>
+      <span class="sub">CHILLED WATER PLANT · 4×离心式冷水机组</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="tb-item opt"><span class="dot live"></span><span>数据链路</span><b>ONLINE</b></div>
+    <div class="tb-item opt"><span>协议</span><b>Modbus-TCP</b></div>
+    <div class="tb-item"><span>刷新</span><b class="num" id="tb-scan">5.0</b><span>s</span></div>
+    <div class="tb-item"><span>系统时间</span><b class="num" id="tb-clock">--:--:--</b></div>
+    <button class="tbtn" id="btn-theme" title="切换深色/白昼模式">◐ 白昼</button>
+    <button class="tbtn" id="btn-fit" title="复位视图 (100%)">⤢ 复位</button>
+    <button class="tbtn" id="btn-flow" aria-pressed="true" title="显示/隐藏流体粒子">≈ 流场</button>
+    <button class="tbtn" id="btn-label" aria-pressed="true" title="显示/隐藏数据标签">▤ 标签</button>
+  </header>
+
+  <!-- ═══ 移动端 KPI 条 (窄屏/触屏显示, 横向滑动) ═══ -->
+  <div id="m-kpi" aria-label="系统总览指标">
+    <div class="mk-card" id="mkc-cool"><span class="mk-l">系统总制冷量</span
+      ><b class="mk-v num" id="mk-cool">—</b><span class="mk-u">kW</span></div>
+    <div class="mk-card"><span class="mk-l">系统总能耗</span
+      ><b class="mk-v num" id="mk-total">—</b><span class="mk-u">kW</span></div>
+    <div class="mk-card" id="mkc-cop"><span class="mk-l">冷站综合 COP</span
+      ><b class="mk-v num" id="mk-cop">—</b><span class="mk-u">kW/kW</span></div>
+    <div class="mk-card"><span class="mk-l">冷冻水 供/回</span
+      ><b class="mk-v num" id="mk-cw">—</b><span class="mk-u">℃</span></div>
+    <div class="mk-card"><span class="mk-l">冷却水 供/回</span
+      ><b class="mk-v num" id="mk-cd">—</b><span class="mk-u">℃</span></div>
+    <div class="mk-card"><span class="mk-l">在线机组</span
+      ><b class="mk-v num" id="mk-run">—</b><span class="mk-u">台 / 4</span></div>
+    <div class="mk-card"><span class="mk-l">系统负载率</span
+      ><b class="mk-v num" id="mk-load">—</b><span class="mk-u">%</span></div>
+    <div class="mk-card"><span class="mk-l">累计耗电量</span
+      ><b class="mk-v num" id="mk-kwh">—</b><span class="mk-u">kWh</span></div>
+  </div>
+
+  <!-- ═══ 舞台 ═══ -->
+  <div id="stagewrap">
+    <div id="stage">
+      <svg id="scene" viewBox="0 0 1966 780" preserveAspectRatio="xMidYMid meet"
+           xmlns="http://www.w3.org/2000/svg" aria-label="冷站工艺流程图"></svg>
+      <canvas id="fx" width="1966" height="780"></canvas>
+    </div>
+
+    <!-- 告警条 -->
+    <div id="alarm"><span class="ai">!</span><span id="alarm-tx">—</span></div>
+
+    <!-- 详情抽屉 -->
+    <aside id="drawer" aria-hidden="true">
+      <div class="dr-hd">
+        <div class="ic" id="dr-ic">▣</div>
+        <div class="tt"><h3 id="dr-name">设备</h3><p id="dr-tag">—</p></div>
+        <button class="dr-x" id="dr-close" aria-label="关闭">✕</button>
+      </div>
+      <div class="dr-bd" id="dr-body"></div>
+    </aside>
+
+    <!-- 手势提示 (触屏首次进入) -->
+    <div id="m-hint">双指缩放 · 单指拖动 · 点击设备查看详情</div>
+  </div>
+
+  <!-- ═══ 移动端区域快捷定位 ═══ -->
+  <nav id="m-nav" aria-label="区域快捷定位">
+    <button class="mn-b" data-region="all" aria-pressed="true">全图</button>
+    <button class="mn-b" data-region="chiller">冷水机组</button>
+    <button class="mn-b" data-region="mua">分集水器</button>
+    <button class="mn-b" data-region="cw">冷冻水系统</button>
+    <button class="mn-b" data-region="cdw">冷却水系统</button>
+    <button class="mn-b" data-region="tower">冷却塔</button>
+  </nav>
+</div>
+
+<div id="tip"></div>
+<script>
+"use strict";
+/* ==========================================================================
+   PART 1 — 几何配置 / 设计令牌 / 数据层
+   ========================================================================== */
+
+const W = 1966, H = 780;
+const NS = "http://www.w3.org/2000/svg";
+const ROWS = [240, 360, 480, 600];   // 4 台机组行中心线
+const DY   = 18;                     // 工艺接管中心相对行中心的偏移
+
+/* 平面几何 (单位: 设计像素, 1px ≈ 6.2mm) */
+const G = {
+  supMan : {x1: 70, x2: 430, y: 170, h: 40},   // 分水器 (供水集管)
+  retMan : {x1: 70, x2: 430, y: 710, h: 40},   // 集水器 (回水集管)
+  cwRetX : 470,      // 冷冻水回水立管 (集水器 → 冷冻水泵)
+  cwSupX : 695,      // 冷冻水供水立管 (蒸发器 → 分水器)  ← 与泵出水管跨线 3 处
+  chpX   : [540, 640],   // 冷冻水泵
+  chlX   : [720, 1240],  // 冷水机组
+  cdpX   : [1290, 1390], // 冷却水泵
+  cdRetX : 1265,     // 冷却水回水立管 (冷凝器 → 冷却塔上行) ← 与泵出水管跨线 3 处
+  cdSupX : 1690,     // 冷却水供水立管 (塔集水盘 → 冷却水泵)
+  twrX   : [1750, 1900], // 冷却塔
+  cdWarmX: 1930,     // 冷却水回水顶部接管
+  railY  : 140,      // 冷却水回水顶部横管标高
+  twrInY : -40,      // 塔回水入口相对行中心偏移
+  twrOutY: 45,       // 塔集水盘出水相对行中心偏移
+  mua    : {x: 100, y1: 380, y2: 562},  // 补水定压装置
+  kpi    : {x: 18, y: 10, w: 1930, h: 108}
+};
+
+/* 状态色 —— 运行/停止/预警/故障 (BAS 通用约定) */
+const ST = {
+  run : {c:"var(--st-run)",  l:"运行", breathe:true },
+  stop: {c:"var(--st-stop)", l:"停机", breathe:false},
+  warn: {c:"var(--st-warn)", l:"预警", breathe:true },
+  fault:{c:"var(--st-fault)",l:"故障", breathe:false, blink:true}
+};
+
+/* --------------------------------------------------------------------------
+   PART 1.1 — 数据层
+   --------------------------------------------------------------------------
+   生产环境请将 MockSource 替换为真实数据源, 保持 subscribe(cb) 接口即可:
+
+     const MqttSource = {
+       subscribe(cb){
+         const c = mqtt.connect("ws://10.0.0.21:8083/mqtt");
+         c.on("connect",()=>c.subscribe("plant/gzl/#"));
+         c.on("message",(t,p)=>cb(mapTopic(t, JSON.parse(p.toString()))));
+       }
+     };
+
+   OPC-UA 侧同理 (node-opcua / python-opcua + WebSocket 网关)。
+   -------------------------------------------------------------------------- */
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const drift = (v, amp, a, b) => clamp(v + rnd(-amp, amp), a, b);
+
+const SYS = {
+  meta: {
+    plant: "港中旅集团维景国际大酒店",
+    brand: "开利 Carrier", type: "离心式",
+    outdoor: {t: 33.6, rh: 62, wb: 27.4}
+  },
+  /* 系统级测点 (总管 / 集分水器) */
+  mains: {
+    chws: {t: 7.0,  p: 0.42, q: 760, sp: 7.8},   // 冷冻水供水  温度/压力/流量/流量设定
+    chwr: {t: 12.5, p: 0.31, q: 760},            // 冷冻水回水
+    cws:  {t: 32.1, p: 0.28, q: 812},            // 冷却水供水
+    cwr:  {t: 37.2, p: 0.22, q: 812},            // 冷却水回水
+    make: {p: 0.36, q: 2.4}                      // 补水定压
+  },
+  chillers: [], chwp: [], cdp: [], twr: [],
+  t: 0
+};
+
+/* 4 台离心式冷水机组 (额定 1758 kW / 开利离心式) */
+for (let i = 0; i < 4; i++) {
+  const on = true;
+  SYS.chillers.push({
+    id: i + 1, kind: "chiller", name: (i + 1) + "#离心式冷水机组", st: on ? "run" : "stop",
+    load: 69 - i * 4, cool: 1215 - i * 70, cop: 5.92 - i * 0.05, kw: 206 + i * 3,
+    evapIn: 12.4, evapOut: 7.0, condIn: 32.1, condOut: 36.8,
+    flow: 190, curr: 320 + i * 5, volt: 396,
+    oilP: 0.42, oilT: 48 + i * 0.4, satEvap: 4.6, satCond: 39.2,
+    runH: 12480 + i * 613, startCnt: 386 + i * 27,
+    sp: {evapOut: 7.0, alEvapOut: [5.0, 9.0], alCondOut: [30, 40]}
+  });
+}
+/* 4 台冷冻水泵 (一次泵变流量, 变频) */
+for (let i = 0; i < 4; i++) {
+  SYS.chwp.push({
+    id: i + 1, kind: "chwp", name: (i + 1) + "#冷冻水泵", st: "run",
+    hz: 45 - i * 0.8, curr: 51 - i, pIn: 0.32, pOut: 0.47,
+    dp: 0.15, flow: 190 - i * 2, runH: 9860 + i * 420, cur: 5
+  });
+}
+/* 4 台冷却水泵 */
+for (let i = 0; i < 4; i++) {
+  SYS.cdp.push({
+    id: i + 1, kind: "cdp", name: (i + 1) + "#冷却水泵", st: "run",
+    hz: 49.5 - i * 0.4, curr: 56 - i, pIn: 0.22, pOut: 0.37,
+    dp: 0.15, flow: 203 - i * 2, runH: 11240 + i * 310, cur: 6
+  });
+}
+/* 4 台横流式方形冷却塔 */
+for (let i = 0; i < 4; i++) {
+  SYS.twr.push({
+    id: i + 1, kind: "twr", name: (i + 1) + "#冷却塔", st: "run",
+    fanHz: 48 - i * 1.2, fanCurr: 26 - i, approach: 4.2 + i * 0.15,
+    inT: 37.2 + i * 0.05, outT: 32.1 + i * 0.05,
+    makeup: 1.2, drift: 0.02, runH: 13560 + i * 260, fanCur: 4,
+    foul: [1.00, 1.00, 1.14, 1.00][i]          // 填料污垢系数 (3# 塔已结垢)
+  });
+}
+
+/* 数据推演: 无现场时用随机游走模拟; 接真实数据源时整体替换该函数 */
+function tickData() {
+  SYS.t += 1;
+  const m = SYS.mains;
+  m.chws.t = drift(m.chws.t, .06, 6.4, 7.9); m.chws.p = drift(m.chws.p, .006, .38, .47);
+  m.chwr.t = drift(m.chwr.t, .09, 11.4, 13.6);
+  m.chws.q = drift(m.chws.q, 4, 660, 840);
+  m.cws.t  = drift(m.cws.t, .10, 30.6, 33.4); m.cwr.t = drift(m.cwr.t, .10, 35.6, 38.6);
+  m.chwr.q = m.chws.q;
+  m.cws.q = drift(m.cws.q, 4, 660, 790); m.cwr.q = m.cws.q;
+  m.make.p = drift(m.make.p, .008, .30, .42);
+
+  SYS.chillers.forEach((c, i) => {
+    c.evapIn  = m.chwr.t + rnd(-.06, .06);
+    c.evapOut = m.chws.t + rnd(-.05, .05);
+    c.condIn  = m.cws.t  + rnd(-.08, .08);
+    c.condOut = m.cwr.t  + rnd(-.08, .08) - i * .1;
+    const nRun = Math.max(1, SYS.chillers.filter(x => x.st === "run").length);
+    const dT = Math.max(.6, c.evapIn - c.evapOut);
+    /* 单机制冷量  Q = ρ·c·q·ΔT/3.6  (冷冻水侧热平衡) */
+    c.flow = m.chws.q / nRun + rnd(-4, 4);
+    c.cool = c.flow * 4.186 * dT / 3.6;
+    /* 机组 COP 效率模型: 蒸发温度越低 / 冷凝温度越高 → COP 越低 */
+    c.cop = clamp(6.15 * (1 - (7.0 - c.evapOut) * .045)
+      - (c.condOut - 36.5) * .10 + rnd(-.04, .04), 3.8, 7.0);
+    c.kw   = clamp(c.cool / c.cop, 60, 760);        // 输入功率由冷量/COP 反算
+    c.load = clamp(c.cool / 1758 * 100, 0, 100);    // 负载率 (额定 1758 kW)
+    c.curr = c.kw * 1000 / (1.732 * 396 * .92);
+    c.satEvap = c.evapOut - rnd(1.8, 2.8);
+    c.satCond = c.condOut + rnd(1.6, 2.6);
+    c.oilT = drift(c.oilT, .1, 44, 56);
+  });
+  /* 水泵: 流量按运行台数均分系统总流量, 功率由流量反算 (Q-H 相似律) */
+  SYS.chwp.forEach((p, i) => {
+    const n = Math.max(1, SYS.chwp.filter(x => x.st === "run").length);
+    p.hz = drift(p.hz, .35, 34, 50);
+    p.flow = m.chws.q / n + rnd(-3, 3);
+    p.curr = clamp(p.flow * .27 + rnd(-1.5, 1.5), 30, 95);
+    p.pOut = drift(p.pOut, .006, .40, .54); p.dp = p.pOut - p.pIn;
+  });
+  SYS.cdp.forEach((p, i) => {
+    const n = Math.max(1, SYS.cdp.filter(x => x.st === "run").length);
+    p.hz = drift(p.hz, .3, 38, 50);
+    p.flow = m.cws.q / n + rnd(-3, 3);
+    p.curr = clamp(p.flow * .27 + rnd(-1.5, 1.5), 30, 100);
+    p.pOut = drift(p.pOut, .006, .32, .44); p.dp = p.pOut - p.pIn;
+  });
+  SYS.twr.forEach((w, i) => {
+    w.inT = m.cwr.t + i * .04; w.outT = m.cws.t + i * .04;
+    w.fanHz = drift(w.fanHz, .4, 42, 50);
+    w.fanCurr = clamp(w.fanHz * .54, 18, 32);
+    /* 逼近度 = 出塔水温 − 室外湿球温度, 并计入填料污垢系数与风机频率 */
+    w.approach = clamp((w.outT - SYS.meta.outdoor.wb) * w.foul
+      * (1 + (50 - w.fanHz) * .003), 2.8, 6.8);
+  });
+}
+
+/* 系统级汇总 —— 冷量取自各机组蒸发器侧热平衡, 能耗取各电机输入功率之和 */
+function agg() {
+  const run = SYS.chillers.filter(c => c.st === "run");
+  const kw  = run.reduce((s, c) => s + c.kw, 0);       // 主机总输入功率
+  const cool = run.reduce((s, c) => s + (c.cool || 0), 0);  // 主机总制冷量
+  const q = SYS.mains.chws.q;
+  const dT = Math.max(.5, SYS.mains.chwr.t - SYS.mains.chws.t);
+  const need = q * 4.186 * dT / 3.6;                    // 末端冷负荷 (流量×温差法)
+  /* 辅机功率: P = √3·U·I·cosφ·η ≈ 0.51·I (kW), U=380V */
+  const aux = (SYS.chwp.filter(p => p.st === "run").reduce((s, p) => s + p.curr, 0)
+             + SYS.cdp.filter(p => p.st === "run").reduce((s, p) => s + p.curr, 0)
+             + SYS.twr.filter(t => t.st === "run").reduce((s, t) => s + t.fanCurr, 0)) * 0.51;
+  const total = kw + aux;
+  return {kw, load: kw, cool, need, total, aux, cop: cool / Math.max(1, total),
+          q, dT, kwh: total * SYS.t * 5 / 3600};
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 2 — SVG 基础库 / defs / 正交路由 + 跨线桥几何引擎
+   ========================================================================== */
+const SVGNS = "http://www.w3.org/2000/svg";
+function el(tag, at = {}, p) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const k in at) if (at[k] !== null && at[k] !== undefined) n.setAttribute(k, at[k]);
+  if (p) p.appendChild(n);
+  return n;
+}
+function gt(parent, cls, at = {}) { at.class = cls + (at.class ? " " + at.class : ""); return el("g", at, parent); }
+function txt(p, x, y, s, at = {}) {
+  const t = el("text", Object.assign({x, y, "font-size": 11, fill: "var(--tx)",
+    "font-family": "var(--ff)", "text-anchor": "start"}, at), p);
+  t.textContent = s; return t;
+}
+function roundRect(p, x, y, w, h, r, at) { return el("rect", Object.assign({x, y, width: w, height: h, rx: r}, at), p); }
+function circle(p, cx, cy, r, at) { return el("circle", Object.assign({cx, cy, r}, at), p); }
+function poly(p, pts, at) { return el("polygon", Object.assign({points: pts.map(a => a.join(",")).join(" ")}, at), p); }
+
+/* ---------- 2.1 defs: 渐变 / 滤镜 / 标记 / 图例填充 ---------- */
+function buildDefs(root) {
+  const d = el("defs", {}, root);
+
+  /* 管道立体渐变 —— 高光在管中心偏左上, 符合管件轴测受光 */
+  const grad = (id, c1, c2) => {
+    const g = el("linearGradient", {id, x1: 0, y1: 0, x2: 0, y2: 1}, d);
+    el("stop", {offset: "0%",  "stop-color": c1, "stop-opacity": .95}, g);
+    el("stop", {offset: "34%", "stop-color": c1, "stop-opacity": 1}, g);
+    el("stop", {offset: "62%", "stop-color": c2, "stop-opacity": 1}, g);
+    el("stop", {offset: "100%","stop-color": c2, "stop-opacity": .9}, g);
+  };
+  grad("g-cws",   "var(--cw-sup)", "var(--cw-sup-deep)");
+  grad("g-cwr",   "var(--cw-ret)", "var(--cw-ret-deep)");
+  grad("g-cdws",  "var(--cdw-sup)", "var(--cdw-sup-deep)");
+  grad("g-cdwr",  "var(--cdw-ret)", "var(--cdw-ret-deep)");
+  grad("g-cond",  "var(--cond)", "#D97B00");
+
+  /* 金属设备壳体 */
+  const mg = el("linearGradient", {id: "g-metal", x1: 0, y1: 0, x2: 0, y2: 1}, d);
+  [["0%","#8A99AE"],["18%","#C6D2E2"],["46%","#7C8CA3"],["74%","#5A6879"],["100%","#3B4653"]]
+    .forEach(([o,c]) => el("stop", {offset: o, "stop-color": c}, mg));
+  const mg2 = el("linearGradient", {id: "g-metal2", x1: 0, y1: 0, x2: 1, y2: 0}, d);
+  [["0%","#B7C3D4"],["30%","#7E8DA2"],["60%","#5C6A7C"],["100%","#414C5A"]]
+    .forEach(([o,c]) => el("stop", {offset: o, "stop-color": c}, mg2));
+  const mg3 = el("radialGradient", {id: "g-motor", cx: ".35", cy: ".3", r: ".78"}, d);
+  [["0%","#D3DDEA"],["45%","#8B99AD"],["100%","#3E4956"]]
+    .forEach(([o,c]) => el("stop", {offset: o, "stop-color": c}, mg3));
+  const mg4 = el("linearGradient", {id: "g-tower", x1: 0, y1: 0, x2: 0, y2: 1}, d);
+  [["0%","#9AA8BB"],["40%","#6E7C90"],["100%","#46515F"]]
+    .forEach(([o,c]) => el("stop", {offset: o, "stop-color": c}, mg4));
+  const mg5 = el("linearGradient", {id: "g-panel", x1: 0, y1: 0, x2: 0, y2: 1}, d);
+  [["0%","rgba(255,255,255,.10)"],["100%","rgba(0,0,0,.28)"]]
+    .forEach(([o,c]) => el("stop", {offset: o, "stop-color": c}, mg5));
+
+  /* 运行发光 */
+  const f = el("filter", {id: "glow", x: "-40%", y: "-40%", width: "180%", height: "180%"}, d);
+  el("feGaussianBlur", {stdDeviation: 4, result: "b"}, f);
+  const m = el("feMerge", {}, f);
+  el("feMergeNode", {in: "b"}, m); el("feMergeNode", {in: "SourceGraphic"}, m);
+
+  /* 流体高光 */
+  const f2 = el("filter", {id: "softglow", x: "-30%", y: "-30%", width: "160%", height: "160%"}, d);
+  el("feGaussianBlur", {stdDeviation: 2.2, result: "b2"}, f2);
+  const m2 = el("feMerge", {}, f2);
+  el("feMergeNode", {in: "b2"}, m2); el("feMergeNode", {in: "SourceGraphic"}, m2);
+
+  /* 冷却塔填料 / 百叶 纹理 */
+  const pt = el("pattern", {id: "p-fill", width: 8, height: 8, patternUnits: "userSpaceOnUse"}, d);
+  el("path", {d: "M0 8L8 0", stroke: "rgba(255,255,255,.22)", "stroke-width": .8}, pt);
+  const pt2 = el("pattern", {id: "p-louver", width: 6, height: 6, patternUnits: "userSpaceOnUse"}, d);
+  el("path", {d: "M0 0H6", stroke: "rgba(255,255,255,.16)", "stroke-width": 1.4}, pt2);
+
+  /* 流向箭头 (marker) */
+  const mk = (id, col) => {
+    const g = el("marker", {id, viewBox: "0 0 10 10", refX: 8, refY: 5,
+      markerWidth: 5, markerHeight: 5, orient: "auto-start-reverse"}, d);
+    el("path", {d: "M0 1.6L9 5L0 8.4Z", fill: col}, g);
+  };
+  mk("ar-cw", "var(--cw-sup)"); mk("ar-cwr", "var(--cw-ret)");
+  mk("ar-cdw", "var(--cdw-sup)"); mk("ar-cdwr", "var(--cdw-ret)");
+  mk("ar-dim", "rgba(150,170,200,.55)");
+
+  /* 编辑用剪影 (阀门/附件填色) */
+  const rg = el("linearGradient", {id: "g-vlv", x1: 0, y1: 0, x2: 0, y2: 1}, d);
+  [["0%","#CFD9E6"],["55%","#8E9DB1"],["100%","#55606E"]]
+    .forEach(([o,c]) => el("stop", {offset: o, "stop-color": c}, rg));
+  return d;
+}
+
+/* ---------- 2.2 正交路由几何引擎 ----------
+   anchors: [[x,y],...] 仅允许水平/垂直段
+   hops   : [{x,y}] 需要"跨线桥"的交叉点 (桥身架在垂直管之上)
+   返回   : {d, samples[], len}  samples 供 Canvas 粒子采样 (O(1) 定位)
+   ------------------------------------------------------------------------- */
+function buildRoute(anchors, opt = {}) {
+  const R = opt.r === undefined ? 10 : opt.r;
+  const HR = opt.hopR === undefined ? 9 : opt.hopR;   // 跨线桥半径 = 被跨管半径 + 4
+  const hops = (opt.hops || []).slice().sort((a, b) => a.x - b.x);
+  const pts = [];
+  const P = (x, y, tag) => pts.push({x, y, tag: tag || ""});
+
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const [x1, y1] = anchors[i], [x2, y2] = anchors[i + 1];
+    const horiz = Math.abs(y1 - y2) < .01;
+    if (horiz) {
+      const dir = x2 > x1 ? 1 : -1;
+      const segHops = hops.filter(h => Math.abs(h.y - y1) < .01 &&
+        (h.x - x1) * dir > 0 && (x2 - h.x) * dir > 0);
+      let cur = x1;
+      P(x1, y1, "end");
+      segHops.forEach(h => {
+        P(h.x - dir * HR, y1, "pre");
+        P(h.x, y1 - HR * 1.15, "hop");   // 拱起
+        P(h.x + dir * HR, y1, "post");
+      });
+      P(x2, y2, "end");
+    } else {
+      P(x1, y1, "end"); P(x2, y2, "end");
+    }
+  }
+
+  /* --- 生成 SVG path (直线段 + 圆角 + 跨线桥圆弧) --- */
+  let d = "";
+  const V = pts.filter((p, i) => i === 0 || i === pts.length - 1 ||
+    p.x !== pts[i - 1].x || p.y !== pts[i - 1].y);
+  const out = [V[0]];
+  for (let i = 1; i < V.length - 1; i++) {
+    const a = V[i - 1], b = V[i], c = V[i + 1];
+    const isHop = b.tag === "hop" || b.tag === "pre" || b.tag === "post";
+    if (isHop) { out.push(b); continue; }
+    const u1 = norm(a, b), u2 = norm(b, c);
+    const r = Math.min(R, dist(a, b) / 2, dist(b, c) / 2);
+    out.push({x: b.x - u1.x * r, y: b.y - u1.y * r, tag: "c1"});
+    out.push({x: b.x, y: b.y, tag: "corner"});
+    out.push({x: b.x + u2.x * r, y: b.y + u2.y * r, tag: "c1"});
+  }
+  out.push(V[V.length - 1]);
+
+  d += `M${out[0].x} ${out[0].y}`;
+  for (let i = 1; i < out.length; i++) {
+    const p = out[i], q = out[i - 1];
+    if (p.tag === "corner" && q.tag === "c1") {
+      d += `Q${p.x} ${p.y} ${out[i + 1].x} ${out[i + 1].y}`; i++;
+    } else if (p.tag === "hop" && q.tag === "pre") {
+      const nx = out[i + 1];
+      d += `A${HR} ${HR * 1.15} 0 0 1 ${nx.x} ${nx.y}`; i++;
+    } else d += `L${p.x} ${p.y}`;
+  }
+
+  /* --- 采样折线 (含桥拱), 供流体粒子使用 --- */
+  const samples = [];
+  const push = (x, y) => {
+    const l = samples.length;
+    if (l && Math.abs(samples[l-1].x - x) < .01 && Math.abs(samples[l-1].y - y) < .01) return;
+    samples.push({x, y});
+  };
+  push(pts[0].x, pts[0].y);
+  const flat = pts.filter((p, i) => i === 0 || p.tag !== "end" || true);
+  for (let i = 1; i < flat.length; i++) {
+    const a = flat[i - 1], b = flat[i];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    const n = Math.max(1, Math.round(L / 4));
+    for (let k = 1; k <= n; k++) push(a.x + (b.x - a.x) * k / n, a.y + (b.y - a.y) * k / n);
+  }
+  let len = 0;
+  for (let i = 1; i < samples.length; i++) len += Math.hypot(samples[i].x - samples[i-1].x, samples[i].y - samples[i-1].y);
+  return {d, samples, len};
+}
+function norm(a, b) { const L = Math.hypot(b.x - a.x, b.y - a.y) || 1; return {x: (b.x - a.x) / L, y: (b.y - a.y) / L}; }
+function dist(a, b) { return Math.hypot(b.x - a.x, b.y - a.y); }
+
+/* 在采样折线上按弧长取点 (二分查找, O(log n)) */
+function sampleAt(route, s) {
+  const S = route.samples;
+  if (S.length < 2) return S[0] || {x: 0, y: 0};
+  let lo = 0, hi = S.length - 1;
+  const total = route.len, target = ((s % total) + total) % total;
+  /* 预热累积表 */
+  if (!route._acc) {
+    route._acc = new Float32Array(S.length);
+    for (let i = 1; i < S.length; i++)
+      route._acc[i] = route._acc[i-1] + Math.hypot(S[i].x - S[i-1].x, S[i].y - S[i-1].y);
+  }
+  const A = route._acc;
+  while (lo < hi - 1) { const mid = (lo + hi) >> 1; if (A[mid] <= target) lo = mid; else hi = mid; }
+  const seg = A[hi] - A[lo] || 1, f = (target - A[lo]) / seg;
+  return {x: S[lo].x + (S[hi].x - S[lo].x) * f, y: S[lo].y + (S[hi].y - S[lo].y) * f,
+          a: Math.atan2(S[hi].y - S[lo].y, S[hi].x - S[lo].x)};
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 3 — 暖通专业符号库 (ASHRAE / GB/T 50114)
+   所有符号绘制于局部坐标, 通过 transform 定位与旋转, ang=0 表示水平管路
+   ========================================================================== */
+
+const LIVE = [];                       // 实时读数注册表: {fn}
+function live(fn) { LIVE.push({fn}); fn(); }
+
+/* ---------- 3.1 法兰 ---------- */
+function flange(p, x, y, ang, w) {
+  const g = gt(p, "flange", {transform: `translate(${x} ${y}) rotate(${ang})`});
+  el("rect", {x: -3, y: -w / 2, width: 6, height: w, rx: 1.5,
+    fill: "#93A2B6", stroke: "rgba(0,0,0,.4)", "stroke-width": .8}, g);
+  return g;
+}
+
+/* ---------- 3.2 状态指示 (运行=呼吸绿 / 停机=灰 / 预警=黄 / 故障=闪红) ---------- */
+function statusDot(p, x, y, st, r = 5) {
+  const s = ST[st] || ST.stop;
+  const g = gt(p, "stdot");
+  circle(g, x, y, r + 3.4, {fill: s.c, opacity: .16});
+  const c = circle(g, x, y, r, {fill: s.c, stroke: "rgba(0,0,0,.35)", "stroke-width": .7});
+  if (s.blink) c.setAttribute("class", "blink");
+  else if (s.breathe) c.setAttribute("class", "breathe");
+  return g;
+}
+
+/* ---------- 3.3 数据读数气泡 (带引线, 不遮挡设备本体) ---------- */
+let CHIP_ID = 0;
+function chip(p, x, y, label, get, opt = {}) {
+  const w = opt.w || 74, h = opt.h || 19, fromRight = opt.right;
+  const g = gt(p, "chip");
+  const col = opt.color || "var(--tx-2)";
+  const ax = fromRight ? x - 6 : x + 6;                 // 引线落点
+  if (opt.lead !== false) {
+    const lx = (opt.leadX !== undefined) ? opt.leadX : (fromRight ? x - 12 : x + 12);
+    el("path", {d: `M${lx} ${y} H${x}`, stroke: col, "stroke-width": 1,
+      "stroke-dasharray": "2 2", opacity: .75}, g);
+    circle(g, lx, y, 2, {fill: col}, g);
+  }
+  const bg = roundRect(g, fromRight ? x - w - 2 : x + 2, y - h / 2, w, h, 4,
+    {fill: "var(--panel)", stroke: col, "stroke-width": 1, "stroke-opacity": .5});
+  const t1 = txt(g, (fromRight ? x - w + 4 : x + 8), y + 3.6, label,
+    {"font-size": 9, fill: "var(--tx-3)", "letter-spacing": .3});
+  const t2 = txt(g, fromRight ? x - 5 : x + w - 2, y + 3.6, "", {"font-size": 11.5,
+    fill: "var(--tx)", "font-weight": 600, "font-family": "var(--ff-num)", "text-anchor": "end"});
+  const id = "c" + (CHIP_ID++);
+  bg.setAttribute("data-id", id);
+  live(() => { t2.textContent = get(); });
+  return g;
+}
+
+/* ---------- 3.4 阀门与管道附件 (bowtie 标准符号) ---------- */
+/* 蝶阀 / 闸阀 */
+function vGate(p, x, y, ang, opt = {}) {
+  const s = opt.s || 11, g = gt(p, "vlv", {transform: `translate(${x} ${y}) rotate(${ang})`});
+  poly(g, [[-s, -s], [0, 0], [-s, s]], {fill: "url(#g-vlv)", stroke: "rgba(0,0,0,.45)", "stroke-width": .9});
+  poly(g, [[s, -s], [0, 0], [s, s]], {fill: "url(#g-vlv)", stroke: "rgba(0,0,0,.45)", "stroke-width": .9});
+  el("line", {x1: 0, y1: -s - 1, x2: 0, y2: s + 1, stroke: "rgba(0,0,0,.5)", "stroke-width": 1.1}, g);
+  return g;
+}
+/* 止回阀 —— 必须带单向箭头 (流向不可逆) */
+function vCheck(p, x, y, ang, col) {
+  const s = 10, g = gt(p, "vlv", {transform: `translate(${x} ${y}) rotate(${ang})`});
+  const c = col || "var(--tx-2)";
+  poly(g, [[-s, -s], [-s, s], [0, 0]], {fill: "url(#g-vlv)", stroke: "rgba(0,0,0,.45)", "stroke-width": .9});
+  el("line", {x1: 1.5, y1: -s, x2: 1.5, y2: s, stroke: "#9DAEC4", "stroke-width": 3.4}, g);
+  const a = el("path", {d: "M-2 -7L6 0L-2 7Z", fill: c, opacity: .92}, g);
+  el("path", {d: `M${-s - 20} 0 H${-s - 6}`, stroke: c, "stroke-width": 1.4, "marker-end": "url(#ar-dim)"}, g);
+  return g;
+}
+/* 电动调节阀 —— 带 0–100% 开度反馈条 */
+function vMotor(p, x, y, ang, get, opt = {}) {
+  const s = 11, g = gt(p, "vlv", {transform: `translate(${x} ${y}) rotate(${ang})`});
+  poly(g, [[-s, -s], [0, 0], [-s, s]], {fill: "url(#g-vlv)", stroke: "rgba(0,0,0,.45)", "stroke-width": 1});
+  poly(g, [[s, -s], [0, 0], [s, s]], {fill: "url(#g-vlv)", stroke: "rgba(0,0,0,.45)", "stroke-width": 1});
+  el("line", {x1: 0, y1: -s, x2: 0, y2: -s - 8, stroke: "#A9B8D0", "stroke-width": 1.6}, g);
+  /* 执行器 */
+  roundRect(g, -11, -s - 26, 22, 19, 3, {fill: "url(#g-metal2)", stroke: "rgba(0,0,0,.5)", "stroke-width": 1});
+  circle(g, 0, -s - 16.5, 5.4, {fill: "none", stroke: "var(--acs)", "stroke-width": 1.4});
+  el("line", {x1: 0, y1: -s - 21.5, x2: 0, y2: -s - 16.5, stroke: "var(--acs)", "stroke-width": 1.6}, g);
+  const bar = roundRect(g, -9, -s - 9.5, 18, 3.2, 1.6, {fill: "rgba(0,0,0,.45)"}, g);
+  const fill = el("rect", {x: -9, y: -s - 9.5, width: 0, height: 3.2, rx: 1.6, fill: "var(--acs)"}, g);
+  const tg = txt(g, 13, -s - 12, "", {"font-size": 9.5, fill: "var(--acs)", "font-weight": 600,
+    "font-family": "var(--ff-num)"});
+  live(() => { const v = get(); fill.setAttribute("width", 18 * v / 100); tg.textContent = v.toFixed(0) + "%"; });
+  return g;
+}
+/* Y 型过滤器 */
+function vFilter(p, x, y, ang) {
+  const s = 10, g = gt(p, "vlv", {transform: `translate(${x} ${y}) rotate(${ang})`});
+  roundRect(g, -s, -s + 2, 2 * s, 2 * s - 4, 1.5,
+    {fill: "url(#g-metal2)", stroke: "rgba(0,0,0,.45)", "stroke-width": 1}, g);
+  for (let i = -1; i <= 1; i++)
+    el("line", {x1: i * 5 - 3, y1: -s + 5, x2: i * 5 + 6, y2: s - 5,
+      stroke: "rgba(255,255,255,.35)", "stroke-width": 1}, g);
+  el("path", {d: `M-2 ${s - 2}L-8 ${s + 9}L6 ${s + 9}L2 ${s - 2}Z`,
+    fill: "url(#g-metal2)", stroke: "rgba(0,0,0,.45)", "stroke-width": .9}, g);
+  return g;
+}
+/* 软接头 (波纹管) */
+function vFlex(p, x, y, ang, len) {
+  const L = len || 26, g = gt(p, "vlv", {transform: `translate(${x} ${y}) rotate(${ang})`});
+  const n = 6;
+  let d = "";
+  for (let i = 0; i <= n; i++) {
+    const px = -L / 2 + L * i / n, py = (i % 2 ? -5.5 : 5.5);
+    d += (i ? "L" : "M") + px + " " + py;
+  }
+  el("path", {d, fill: "none", stroke: "#9DAEC4", "stroke-width": 2.1, "stroke-linejoin": "round"}, g);
+  el("path", {d, fill: "none", stroke: "rgba(255,255,255,.35)", "stroke-width": .8}, g);
+  return g;
+}
+
+/* ---------- 3.5 传感器 (T/P/F) ---------- */
+function sensor(p, x, y, type, get, opt = {}) {
+  const ang = opt.ang || 0, side = opt.side || -1;     // side=-1 探针朝上(装在管上方)
+  const g = gt(p, "sen");                              // 外层: 不参与旋转, 保证文字水平可读
+  const rg = gt(g, "sen-r", {transform: `translate(${x} ${y}) rotate(${ang})`});
+  const col = opt.color || "var(--acs)";
+  const lbl = {T: "T", P: "P", F: "F", H: "H"}[type] || "T";
+  el("line", {x1: 0, y1: 0, x2: 0, y2: side * 13, stroke: col, "stroke-width": 1.8}, rg);
+  circle(rg, 0, side * 17.5, 7.6, {fill: "var(--panel)", stroke: col, "stroke-width": 1.5}, rg);
+  txt(rg, 0, side * 17.5 + 3.4, lbl, {"font-size": 9.5, fill: col, "font-weight": 700,
+    "text-anchor": "middle", "font-family": "var(--ff-num)"}, rg);
+  const tx = opt.tx !== undefined ? opt.tx : x;
+  const ty = opt.ty !== undefined ? opt.ty : y + side * 30.5;
+  const tg = txt(g, tx, ty, "", {"font-size": 11.5, fill: "var(--tx)", "font-weight": 650,
+    "text-anchor": opt.anchor || "middle", "font-family": "var(--ff-num)",
+    "paint-order": "stroke", stroke: "var(--bg)", "stroke-width": 3.4, "stroke-linejoin": "round"});
+  live(() => { tg.textContent = get(); });
+  return g;
+}
+
+/* ---------- 3.6 管道内流向指示箭头 (SVG 兜底层) ---------- */
+function flowArrow(p, x, y, ang, col, scale) {
+  const s = scale || 1, g = gt(p, "farrow", {transform: `translate(${x} ${y}) rotate(${ang}) scale(${s})`});
+  el("path", {d: "M-7 -5L3 0L-7 5Z", fill: col, opacity: .5}, g);
+  return g;
+}
+
+/* ---------- 3.7 就地仪表盘 (圆盘表 + 指针) ---------- */
+function gauge(p, x, y, get, opt = {}) {
+  const g = gt(p, "gauge", {transform: `translate(${x} ${y})`});
+  const r = opt.r || 20, max = opt.max || 1;
+  circle(g, 0, 0, r, {fill: "var(--panel-2)", stroke: "var(--line-2)", "stroke-width": 1.4}, g);
+  el("path", {d: `M${-r*0.72} ${r*0.42}A${r*0.82} ${r*0.82} 0 0 1 ${r*0.72} ${r*0.42}`,
+    fill: "none", stroke: "var(--line-2)", "stroke-width": 2.4}, g);
+  const arc = el("path", {d: `M${-r*0.72} ${r*0.42}A${r*0.82} ${r*0.82} 0 0 1 ${r*0.72} ${r*0.42}`,
+    fill: "none", stroke: opt.color || "var(--acs)", "stroke-width": 2.6,
+    "stroke-linecap": "round", "stroke-dasharray": 100, "stroke-dashoffset": 100}, g);
+  const nd = el("line", {x1: 0, y1: 0, x2: 0, y2: -r * .7, stroke: "var(--tx)",
+    "stroke-width": 1.6, "stroke-linecap": "round"}, g);
+  circle(g, 0, 0, 2.4, {fill: "var(--tx)"}, g);
+  const tt = txt(g, 0, r + 12, "", {"font-size": 10, fill: "var(--tx-2)",
+    "text-anchor": "middle", "font-family": "var(--ff-num)"});
+  txt(g, 0, -r - 3, opt.label || "", {"font-size": 9, fill: "var(--tx-3)", "text-anchor": "middle"});
+  live(() => {
+    const v = get(), f = clamp(v / max, 0, 1);
+    arc.setAttribute("stroke-dashoffset", 100 * (1 - f));
+    nd.setAttribute("transform", `rotate(${-90 + f * 180})`);
+    tt.textContent = (opt.fmt ? opt.fmt(v) : v.toFixed(2));
+  });
+  return g;
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 4 — 设备符号: 离心式冷水机组 / 卧式离心泵 / 冷却塔 / 集分水器
+   ========================================================================== */
+
+const EQ = {};                      // 设备元素索引, 供交互联动
+
+/* ---------- 4.1 管壳式换热器 (蒸发器 / 冷凝器) ---------- */
+/* 一体化双筒换热器 —— 蒸发器 + 冷凝器共用一个壳体, 中间以中隔板分腔,
+   而不是画成两个互不相干的方框 (整机一台设备) */
+function hxUnit(p, x1, x2, cy, secs) {
+  const g = gt(p, "hx");
+  const w = x2 - x1, h = 60, y = cy - 27;
+  /* —— 单一外壳 (两筒共壳) —— */
+  roundRect(g, x1, y, w, h, 9, {fill: "url(#g-metal)", stroke: "rgba(0,0,0,.45)",
+    "stroke-width": 1.1}, g);
+  roundRect(g, x1 + 4, y + 3, w - 8, 7, 3.5, {fill: "rgba(255,255,255,.22)"}, g);
+  /* 两端水室端盖 */
+  el("rect", {x: x1, y, width: 9, height: h, rx: 4, fill: "rgba(0,0,0,.22)"}, g);
+  el("rect", {x: x2 - 9, y, width: 9, height: h, rx: 4, fill: "rgba(0,0,0,.22)"}, g);
+  /* 两端管板 */
+  el("line", {x1: x1 + 9, y1: y + 4, x2: x1 + 9, y2: y + h - 4, stroke: "rgba(0,0,0,.30)", "stroke-width": 1.2}, g);
+  el("line", {x1: x2 - 9, y1: y + 4, x2: x2 - 9, y2: y + h - 4, stroke: "rgba(0,0,0,.30)", "stroke-width": 1.2}, g);
+
+  const sw = w / secs.length;
+  secs.forEach((c, i) => {
+    const sx = x1 + i * sw;
+    const isL = i === 0, isR = i === secs.length - 1;
+    /* 中隔板: 把同一壳体分成蒸发腔 / 冷凝腔 */
+    if (!isL)
+      roundRect(g, sx - 3.5, y + 2, 7, h - 4, 2.5,
+        {fill: "rgba(0,0,0,.34)", stroke: "rgba(255,255,255,.12)", "stroke-width": .8}, g);
+    /* 换热管束 */
+    for (let k = 0; k < 3; k++)
+      el("line", {x1: sx + 14, y1: y + 7 + k * 4.6, x2: sx + sw - 14, y2: y + 7 + k * 4.6,
+        stroke: "rgba(255,255,255,.16)", "stroke-width": 1}, g);
+    /* 工艺接管: 蒸发器接管走左侧, 冷凝器接管走右侧 (进/出 上下布置) */
+    const edge = isL ? x1 - 30 : x2 + 30;
+    [[cy + 18, c.inCol], [cy - 18, c.outCol]].forEach(([ny, col]) => {
+      el("path", {d: `M${edge} ${ny} H${isL ? x1 + 6 : x2 - 6}`, stroke: col,
+        "stroke-width": 15, "stroke-linecap": "butt", opacity: .96}, g);
+      el("path", {d: `M${edge} ${ny} H${isL ? x1 + 6 : x2 - 6}`, stroke: "rgba(0,0,0,.30)",
+        "stroke-width": 15.4, "stroke-linecap": "butt", opacity: .35}, g);
+    });
+    /* 腔体标注 + 进/出温度 */
+    txt(g, sx + 18, y + 20, c.cn,
+      {"font-size": 11, "font-weight": 700, fill: "rgba(232,242,255,.94)", "letter-spacing": 1.2}, g);
+    txt(g, sx + 18, y + 31, c.en,
+      {"font-size": 7.2, fill: "rgba(232,242,255,.55)", "letter-spacing": 1.4}, g);
+    const tIn = txt(g, sx + 18, y + 50, "", {"font-size": 10.5,
+      fill: "rgba(236,246,255,.95)", "font-family": "var(--ff-num)", "font-weight": 600}, g);
+    const tOut = txt(g, sx + sw - 18, y + 50, "", {"font-size": 10.5,
+      fill: "rgba(236,246,255,.95)", "font-family": "var(--ff-num)", "font-weight": 600,
+      "text-anchor": "end"}, g);
+    live(() => {
+      tIn.textContent = "进 " + c.getIn() + "℃";
+      tOut.textContent = "出 " + c.getOut() + "℃";
+    });
+  });
+  return g;
+}
+
+/* ---------- 4.2 离心式压缩机 (蜗壳 + 叶轮 + 电机) ---------- */
+function compressor(p, cx, cy) {
+  const g = gt(p, "comp");
+  circle(g, cx, cy, 15, {fill: "url(#g-metal)", stroke: "rgba(0,0,0,.5)", "stroke-width": 1.2}, g);
+  /* 蜗壳螺旋 */
+  el("path", {d: `M${cx - 14} ${cy} A14 14 0 1 1 ${cx} ${cy - 14} A9 9 0 0 1 ${cx + 8} ${cy - 6}`,
+    fill: "none", stroke: "rgba(255,255,255,.35)", "stroke-width": 1.5}, g);
+  /* 叶轮 */
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3;
+    el("path", {d: `M${cx} ${cy} L${cx + Math.cos(a) * 9} ${cy + Math.sin(a) * 9}`,
+      stroke: "rgba(20,30,45,.7)", "stroke-width": 1.6, "stroke-linecap": "round"}, g);
+  }
+  circle(g, cx, cy, 3.2, {fill: "#2B3644", stroke: "rgba(255,255,255,.4)", "stroke-width": .9}, g);
+  /* 压缩机电机 */
+  roundRect(g, cx - 26, cy - 34, 52, 15, 3, {fill: "url(#g-metal2)", stroke: "rgba(0,0,0,.5)",
+    "stroke-width": 1}, g);
+  for (let i = 0; i < 6; i++)
+    el("line", {x1: cx - 22 + i * 8, y1: cy - 32, x2: cx - 22 + i * 8, y2: cy - 21,
+      stroke: "rgba(0,0,0,.28)", "stroke-width": 1.2}, g);
+  txt(g, cx, cy - 39, "离心式压缩机", {"font-size": 8, fill: "var(--tx-3)", "text-anchor": "middle"}, g);
+  return g;
+}
+
+/* ---------- 4.3 微电脑控制柜 ---------- */
+function controlPanel(p, x, y, c) {
+  const g = gt(p, "panel");
+  roundRect(g, x, y, 104, 34, 3.5, {fill: "url(#g-metal2)", stroke: "rgba(0,0,0,.5)",
+    "stroke-width": 1.1}, g);
+  roundRect(g, x + 5, y + 5, 56, 24, 2, {fill: "#0C1622", stroke: "rgba(120,190,230,.35)",
+    "stroke-width": 1}, g);
+  /* 触摸屏上的微型趋势曲线 */
+  const sp = el("path", {d: "M0 0 L0 0", fill: "none", stroke: "var(--acs)", "stroke-width": 1.2}, g);
+  const bx = x + 7, by = y + 21, bw = 52, bh = 15;
+  live(() => {
+    let d = "", n = 12, base = (SYS.t % 40) / 40;
+    for (let i = 0; i < n; i++) {
+      const v = .5 + .38 * Math.sin((i / n + base) * 3.4) * Math.cos((i / n) * 1.7);
+      d += (i ? "L" : "M") + (bx + bw * i / (n - 1)).toFixed(1) + " " + (by - bh * v + 7).toFixed(1);
+    }
+    sp.setAttribute("d", d);
+  });
+  ["var(--st-run)", "var(--acs)", "var(--st-warn)"].forEach((cc, i) =>
+    circle(g, x + 70 + i * 11, y + 11, 3, {fill: cc}, g));
+  txt(g, x + 70, y + 27, "微电脑控制柜", {"font-size": 7.2, fill: "rgba(220,235,255,.6)"}, g);
+  return g;
+}
+
+/* ---------- 4.4 离心式冷水机组 (整机) ---------- */
+function symChiller(p, x1, x2, cy, c) {
+  const g = gt(p, "eq chiller");
+  g.setAttribute("data-eq", "chiller-" + c.id);
+  EQ["chiller-" + c.id] = g;
+  const cx = (x1 + x2) / 2;
+  const w = x2 - x1;
+
+  /* 底座 */
+  roundRect(g, x1 + 16, cy + 38, w - 32, 9, 3, {fill: "rgba(0,0,0,.30)",
+    stroke: "rgba(150,170,200,.22)", "stroke-width": 1}, g);
+  /* 机身框架 */
+  const frame = roundRect(g, x1, cy - 53, w, 106, 9,
+    {fill: "rgba(140,165,200,.055)", stroke: "var(--line-2)", "stroke-width": 1.6}, g);
+  frame.setAttribute("class", "frame");
+  /* 顶部机架 */
+  roundRect(g, x1 + 4, cy - 51, w - 8, 22, 5, {fill: "rgba(120,150,190,.08)"}, g);
+
+  /* 机组名称 + 状态 */
+  txt(g, x1 + 16, cy - 36, c.name, {"font-size": 13, "font-weight": 700, fill: "var(--tx)",
+    "letter-spacing": .5}, g);
+  const st = ST[c.st];
+  const pg = gt(g, "pill");
+  roundRect(pg, x1 + 16, cy - 30, 56, 15, 7.5, {fill: st.c, opacity: .16}, pg);
+  circle(pg, x1 + 25, cy - 22.5, 3.4, {fill: st.c,
+    class: st.blink ? "blink" : (st.breathe ? "breathe" : null)}, pg);
+  txt(pg, x1 + 33, cy - 19, st.l, {"font-size": 10, fill: st.c, "font-weight": 700}, pg);
+  /* 负载率条形指示 */
+  const lbT = txt(g, x1 + 84, cy - 19, "", {"font-size": 10, fill: "var(--tx-2)"});
+  const lbBg = roundRect(g, x1 + 132, cy - 26, 54, 7, 3.5, {fill: "rgba(0,0,0,.34)"}, g);
+  const lbF = el("rect", {x: x1 + 132, y: cy - 26, width: 0, height: 7, rx: 3.5, fill: "var(--st-run)"}, g);
+  const lbV = txt(g, x1 + 192, cy - 19, "", {"font-size": 10, fill: "var(--tx)",
+    "font-family": "var(--ff-num)", "font-weight": 600});
+  live(() => {
+    lbT.textContent = "负载率";
+    lbF.setAttribute("width", 54 * clamp(c.load, 0, 100) / 100);
+    lbF.setAttribute("fill", c.load > 92 ? PAL["st-warn"] : PAL["st-run"]);
+    lbV.textContent = c.load.toFixed(0) + "%";
+  });
+
+  /* 蒸发器 + 冷凝器 —— 一体化双筒: 同一壳体, 中隔板分腔 (整机一台设备) */
+  hxUnit(g, x1 + 30, x2 - 30, cy + 3, [
+    {cn: "蒸发器", en: "EVAPORATOR", inCol: "var(--cw-ret)", outCol: "var(--cw-sup)",
+     getIn: () => c.evapIn.toFixed(1), getOut: () => c.evapOut.toFixed(1)},
+    {cn: "冷凝器", en: "CONDENSER", inCol: "var(--cdw-sup)", outCol: "var(--cdw-ret)",
+     getIn: () => c.condIn.toFixed(1), getOut: () => c.condOut.toFixed(1)}
+  ]);
+  /* 压缩机 (骑跨在中隔板上) + 控制柜 */
+  compressor(g, cx, cy - 30);
+  controlPanel(g, x2 - 118, cy - 50, c);
+  /* 制冷剂回路示意: 压缩机油气 → 右腔冷凝器; 节流后 → 左腔蒸发器 */
+  el("path", {d: `M${cx - 16} ${cy - 31} H${x1 + 168}`, stroke: "rgba(90,160,230,.6)",
+    "stroke-width": 2.4, "stroke-dasharray": "5 3", fill: "none"}, g);
+  el("path", {d: `M${cx + 16} ${cy - 31} H${x2 - 168}`, stroke: "rgba(230,90,90,.6)",
+    "stroke-width": 2.4, "stroke-dasharray": "5 3", fill: "none"}, g);
+  txt(g, cx + 30, cy - 34, "R134a", {"font-size": 7.4, fill: "rgba(230,150,150,.78)"}, g);
+
+  /* 底部运行参数条 */
+  const info = txt(g, cx, cy + 49, "", {"font-size": 10, fill: "var(--tx-2)",
+    "text-anchor": "middle", "font-family": "var(--ff-num)"}, g);
+  live(() => {
+    info.textContent = `COP ${c.cop.toFixed(2)}  │  输入功率 ${c.kw.toFixed(0)} kW  │  `
+      + `电流 ${c.curr.toFixed(0)} A  │  累计运行 ${c.runH.toLocaleString()} h  │  `
+      + `蒸发饱和 ${c.satEvap.toFixed(1)}℃ / 冷凝饱和 ${c.satCond.toFixed(1)}℃`;
+  });
+
+  /* 命中区域 */
+  el("rect", {x: x1, y: cy - 53, width: w, height: 106, fill: "transparent", class: "hit"}, g);
+  return g;
+}
+
+/* ---------- 4.5 卧式离心泵 (蜗壳 + 电机 + 流向) ---------- */
+function symPump(p, x1, x2, cy, pm, mirror) {
+  const g = gt(p, "eq pump");
+  g.setAttribute("data-eq", "pump-" + pm.kind + "-" + pm.id);
+  EQ["pump-" + pm.kind + "-" + pm.id] = g;
+  const w = x2 - x1, cxB = (x1 + x2) / 2;
+  const body = gt(g, "pbody");
+  if (mirror) body.setAttribute("transform",
+    `translate(${cxB} ${cy}) scale(-1,1) translate(${-cxB} ${-cy})`);
+  const vx = x1 + 42;                                  // 蜗壳中心 (左侧)
+  /* 底座 */
+  roundRect(body, x1 + 2, cy + 32, w - 4, 8, 3, {fill: "rgba(0,0,0,.30)",
+    stroke: "rgba(150,170,200,.22)", "stroke-width": 1}, body);
+  /* 进出口法兰 */
+  roundRect(body, x1 - 5, cy - 14, 7, 28, 2, {fill: "#93A2B6", stroke: "rgba(0,0,0,.45)",
+    "stroke-width": 1}, body);
+  roundRect(body, x2 - 2, cy - 14, 7, 28, 2, {fill: "#93A2B6", stroke: "rgba(0,0,0,.45)",
+    "stroke-width": 1}, body);
+  /* 管道贯通段 */
+  roundRect(body, x1, cy - 9, w, 18, 3, {fill: "rgba(120,150,190,.20)"}, body);
+  /* 蜗壳 (压出室) */
+  circle(body, vx, cy, 24, {fill: "url(#g-metal)", stroke: "rgba(0,0,0,.5)", "stroke-width": 1.3}, body);
+  el("path", {d: `M${vx - 22} ${cy} A22 22 0 1 1 ${vx} ${cy - 22} A15 15 0 0 1 ${vx + 13} ${cy - 9}`,
+    fill: "none", stroke: "rgba(255,255,255,.38)", "stroke-width": 1.8}, body);
+  /* 叶轮室 */
+  circle(body, vx, cy, 12.5, {fill: "rgba(8,14,24,.34)",
+    stroke: "rgba(255,255,255,.26)", "stroke-width": 1}, body);
+  /* 后弯叶片 ×3 */
+  for (let i = 0; i < 3; i++) {
+    const a = i * 2.094;
+    el("path", {d: `M${(vx + Math.cos(a) * 4.2).toFixed(1)} ${(cy + Math.sin(a) * 4.2).toFixed(1)}`
+      + ` Q${(vx + Math.cos(a + .38) * 9.2).toFixed(1)} ${(cy + Math.sin(a + .38) * 9.2).toFixed(1)}`
+      + ` ${(vx + Math.cos(a + .8) * 11.6).toFixed(1)} ${(cy + Math.sin(a + .8) * 11.6).toFixed(1)}`,
+      fill: "none", stroke: "rgba(238,246,255,.62)", "stroke-width": 1.6,
+      "stroke-linecap": "round"}, body);
+  }
+  circle(body, vx, cy, 4.3, {fill: "#2B3644", stroke: "rgba(255,255,255,.5)", "stroke-width": 1}, body);
+  /* 电机 (置于泵体上方, 联轴器贯通) —— 高度受限, 保证不与铭牌文字冲突 */
+  const mx = vx + 14;
+  roundRect(body, mx - 4, cy - 44, 44, 25, 4, {fill: "url(#g-motor)",
+    stroke: "rgba(0,0,0,.5)", "stroke-width": 1.1}, body);
+  for (let i = 0; i < 7; i++)
+    el("line", {x1: mx + i * 6, y1: cy - 42, x2: mx + i * 6, y2: cy - 21,
+      stroke: "rgba(0,0,0,.30)", "stroke-width": 1.4}, body);
+  el("rect", {x: mx - 4, y: cy - 44, width: 44, height: 5.4, rx: 2.6,
+    fill: "rgba(255,255,255,.22)"}, body);
+  /* 联轴器 + 支架 */
+  el("line", {x1: vx, y1: cy - 22, x2: vx, y2: cy - 28, stroke: "#A9B8D0", "stroke-width": 3.2}, body);
+  el("line", {x1: vx + 4, y1: cy - 26, x2: mx + 12, y2: cy - 26, stroke: "#8E9DB1", "stroke-width": 2.4}, body);
+  el("line", {x1: mx + 12, y1: cy - 26, x2: mx + 12, y2: cy - 19, stroke: "#8E9DB1", "stroke-width": 2.4}, body);
+  /* 泵体内流向指示 (随泵体镜像, 始终指向水流方向) */
+  el("path", {d: `M${vx + 34} ${cy - 5.5}L${vx + 43} ${cy}L${vx + 34} ${cy + 5.5}Z`,
+    fill: "var(--acs)", opacity: .85}, body);
+  /* 铭牌 (置于电机上方, 避开设备本体) */
+  const tx = mirror ? x1 + 16 : x2 - 16;
+  txt(g, tx, cy - 54, pm.name, {"font-size": 11.5, "font-weight": 650, fill: "var(--tx)",
+    "text-anchor": mirror ? "start" : "end"});
+  /* 运行参数 */
+  const pr = txt(g, mirror ? x1 + 8 : x2 - 8, cy + 50, "", {"font-size": 10, fill: "var(--tx-2)",
+    "text-anchor": mirror ? "start" : "end", "font-family": "var(--ff-num)"});
+  live(() => {
+    pr.textContent = `${pm.hz.toFixed(1)} Hz │ ${pm.curr.toFixed(0)} A │ `
+      + `${pm.flow.toFixed(0)} m³/h │ ΔP ${(pm.dp * 1000).toFixed(0)} kPa`;
+  });
+  /* 状态灯 */
+  statusDot(g, mirror ? x1 + 4 : x2 - 4, cy - 54, pm.st, 4.4);
+  el("rect", {x: x1 - 4, y: cy - 60, width: w + 8, height: 100, fill: "transparent", class: "hit"}, g);
+  return g;
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 5 — 冷却塔 / 集分水器 / 补水定压装置
+   ========================================================================== */
+
+/* ---------- 5.1 方形横流式冷却塔 (含旋转风机 / 布水器 / 填料 / 集水盘) ---------- */
+function symTower(p, x1, x2, ry, t) {
+  const g = gt(p, "eq tower");
+  g.setAttribute("data-eq", "tower-" + t.id);
+  EQ["tower-" + t.id] = g;
+  const w = x2 - x1, cx = (x1 + x2) / 2;
+  const yT = ry - 46, yB = ry + 46;
+
+  /* 塔体 */
+  const frame = roundRect(g, x1, yT, w, 92, 5,
+    {fill: "url(#g-tower)", stroke: "rgba(0,0,0,.5)", "stroke-width": 1.3}, g);
+  frame.setAttribute("class", "frame");
+  roundRect(g, x1 + 2, yT + 2, w - 4, 9, 4, {fill: "rgba(255,255,255,.16)"}, g);
+
+  /* 顶部出风格栅 */
+  for (let i = 0; i < 4; i++)
+    el("line", {x1: x1 + 8 + i * 3, y1: yT + 4, x2: x1 + 8 + i * 3, y2: yT + 11,
+      stroke: "rgba(0,0,0,.22)", "stroke-width": 1.2}, g);
+  /* 风机罩 + 可旋转叶轮 */
+  circle(g, cx, ry - 31, 13, {fill: "rgba(10,18,28,.55)", stroke: "rgba(200,220,240,.5)",
+    "stroke-width": 1.3}, g);
+  const fan = gt(g, "fan", {transform: `rotate(0 ${cx} ${ry - 31})`});
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3;
+    el("path", {d: `M${cx} ${ry - 31} Q${cx + Math.cos(a + .5) * 11} ${ry - 31 + Math.sin(a + .5) * 11} `
+      + `${cx + Math.cos(a + .95) * 12} ${ry - 31 + Math.sin(a + .95) * 12}`,
+      fill: "none", stroke: "rgba(190,215,245,.82)", "stroke-width": 2.1, "stroke-linecap": "round"}, fan);
+  }
+  circle(g, cx, ry - 31, 2.6, {fill: "#DCE7F5"}, g);
+  const fdeg = {v: 0};
+  live(() => {
+    if (t.st === "run") fdeg.v = (fdeg.v + t.fanHz * 3.2) % 360;
+    fan.setAttribute("transform", `rotate(${fdeg.v} ${cx} ${ry - 31})`);
+  });
+
+  /* 布水器 (回水入口 → 配水管 + 喷嘴) */
+  el("path", {d: `M${x2} ${ry - 40} H${cx} V${ry - 20}`, fill: "none",
+    stroke: "var(--cdw-ret)", "stroke-width": 5, "stroke-linecap": "round", opacity: .9}, g);
+  el("path", {d: `M${x1 + 12} ${ry - 20} H${x2 - 12}`, stroke: "var(--cdw-ret)",
+    "stroke-width": 4, "stroke-linecap": "round", opacity: .9}, g);
+  for (let i = 0; i < 9; i++)
+    el("line", {x1: x1 + 16 + i * 14, y1: ry - 19, x2: x1 + 16 + i * 14, y2: ry - 14,
+      stroke: "rgba(230,150,90,.75)", "stroke-width": 1.6}, g);
+
+  /* 填料层 */
+  roundRect(g, x1 + 7, ry - 13, w - 14, 30, 2,
+    {fill: "url(#p-fill)", stroke: "rgba(0,0,0,.25)", "stroke-width": .8}, g);
+  roundRect(g, x1 + 7, ry - 13, w - 14, 30, 2, {fill: "rgba(120,160,200,.14)"}, g);
+
+  /* 侧面进风百叶 */
+  [x1 + 4, x2 - 6].forEach(lx =>
+    el("rect", {x: lx, y: ry - 13, width: 3, height: 30, fill: "url(#p-louver)"}, g));
+
+  /* 集水盘 + 水位 */
+  roundRect(g, x1 + 7, ry + 26, w - 14, 15, 2, {fill: "rgba(10,18,28,.5)",
+    stroke: "rgba(200,220,240,.25)", "stroke-width": .9}, g);
+  const lvl = el("rect", {x: x1 + 8, y: ry + 30, width: w - 16, height: 10, rx: 1.5,
+    fill: "var(--cdw-sup)", opacity: .55}, g);
+  const wav = el("path", {d: "", stroke: "rgba(255,255,255,.5)", "stroke-width": 1, fill: "none"}, g);
+  live(() => {
+    let d = ""; const y0 = ry + 31;
+    for (let i = 0; i <= 12; i++)
+      d += (i ? "L" : "M") + (x1 + 8 + (w - 16) * i / 12).toFixed(1) + " "
+        + (y0 + Math.sin(i * .9 + SYS.t * .28 + t.id) * 1.5).toFixed(1);
+    wav.setAttribute("d", d);
+  });
+
+  /* 数据标签 */
+  const c = {t: 0};
+  chip(g, cx, ry - 58, t.name, () => `${t.fanHz.toFixed(1)}Hz`, {w: 118, color: "var(--cdw-ret)"});
+  /* 状态灯 (放在气泡左侧) */
+  statusDot(g, cx - 62, ry - 58, t.st, 4.2);
+  const rt = txt(g, cx, ry + 22, "", {"font-size": 10, fill: "rgba(235,245,255,.92)",
+    "text-anchor": "middle", "font-family": "var(--ff-num)"});
+  live(() => {
+    rt.textContent = `进 ${t.inT.toFixed(1)} → 出 ${t.outT.toFixed(1)}℃  逼近 ${t.approach.toFixed(1)}K`;
+  });
+  el("rect", {x: x1, y: yT, width: w, height: 92, fill: "transparent", class: "hit"}, g);
+  return g;
+}
+
+/* ---------- 5.2 集水器 / 分水器 (分集水器母管) ---------- */
+function symManifold(p, m, kind) {
+  const g = gt(p, "eq manifold");
+  const key = kind === "sup" ? "splitter" : "collector";
+  g.setAttribute("data-eq", key);
+  EQ[key] = g;
+  const w = m.x2 - m.x1, h = m.h, y = m.y - h / 2;
+  /* 母管 */
+  roundRect(g, m.x1, y, w, h, h / 2, {fill: "url(#g-metal2)",
+    stroke: "rgba(0,0,0,.5)", "stroke-width": 1.4}, g);
+  roundRect(g, m.x1 + 6, y + 3, w - 12, 8, 4, {fill: "rgba(255,255,255,.22)"}, g);
+  /* 端头封头 */
+  [m.x1, m.x2].forEach(xx => el("ellipse", {cx: xx + 5, cy: y + h / 2, rx: 6, ry: h / 2,
+    fill: "rgba(0,0,0,.25)"}, g));
+  /* 支管接口 (末端环路) */
+  const isSup = kind === "sup";
+  for (let i = 0; i < 6; i++) {
+    const nx = m.x1 + 46 + i * 58;
+    el("rect", {x: nx - 3, y: isSup ? y - 9 : y + h, width: 6, height: 11, rx: 1.5,
+      fill: "#93A2B6", stroke: "rgba(0,0,0,.35)", "stroke-width": .7}, g);
+  }
+  const col = isSup ? "var(--cw-sup)" : "var(--cw-ret)";
+  const t = txt(g, m.x1 + 12, y + h / 2 + 4, kind === "sup" ? "分水器 SPLITTER" : "集水器 COLLECTOR",
+    {"font-size": 11.5, "font-weight": 700, fill: "rgba(235,245,255,.95)", "letter-spacing": .6}, g);
+  txt(g, m.x1 + 12, y + h / 2 + 15, kind === "sup" ? "供水干管 DN250" : "回水干管 DN250",
+    {"font-size": 8, fill: "rgba(235,245,255,.5)"}, g);
+  /* 母管测点 */
+  const mm = isSup ? SYS.mains.chws : SYS.mains.chwr;
+  sensor(g, m.x2 - 92, y - 2, "T", () => mm.t.toFixed(1) + "℃", {ang: 0, side: -1, color: col});
+  sensor(g, m.x2 - 46, y - 2, "P", () => mm.p.toFixed(2) + "MPa", {ang: 0, side: -1, color: col});
+  if (isSup) {
+    sensor(g, m.x2 - 150, y + h + 2, "F", () => mm.q.toFixed(0) + "m³/h", {ang: 0, side: 1, color: col});
+  }
+  el("rect", {x: m.x1, y: y - 14, width: w, height: h + 28, fill: "transparent", class: "hit"}, g);
+  return g;
+}
+
+/* ---------- 5.3 补水定压装置 (软水箱 + 补水泵 + 气压罐) ---------- */
+function symMakeup(p, m) {
+  const g = gt(p, "eq makeup");
+  g.setAttribute("data-eq", "makeup");
+  EQ["makeup"] = g;
+  const x = m.x, y1 = m.y1, y2 = m.y2;
+  /* 软化水箱 */
+  roundRect(g, x, y1, 86, 96, 4, {fill: "url(#g-metal2)", stroke: "rgba(0,0,0,.5)",
+    "stroke-width": 1.2}, g);
+  roundRect(g, x + 3, y1 + 34, 80, 58, 3, {fill: "var(--cw-sup)", opacity: .34}, g);
+  const wl = el("path", {d: "", stroke: "rgba(255,255,255,.6)", "stroke-width": 1.2, fill: "none"}, g);
+  live(() => {
+    let d = ""; const yy = y1 + 36;
+    for (let i = 0; i <= 10; i++)
+      d += (i ? "L" : "M") + (x + 3 + 8 * i).toFixed(1) + " "
+        + (yy + Math.sin(i * .95 + SYS.t * .3) * 1.6).toFixed(1);
+    wl.setAttribute("d", d);
+  });
+  txt(g, x + 43, y1 + 18, "软化水箱", {"font-size": 10.5, "font-weight": 650,
+    fill: "rgba(235,245,255,.95)", "text-anchor": "middle"}, g);
+  txt(g, x + 43, y1 + 30, "5 m³", {"font-size": 8.5, fill: "rgba(235,245,255,.6)",
+    "text-anchor": "middle", "font-family": "var(--ff-num)"}, g);
+
+  /* 气压定压罐 */
+  const tx = x + 118, ty = y1 + 4, tw = 40, th = 92;
+  roundRect(g, tx, ty, tw, th, tw / 2, {fill: "url(#g-metal)",
+    stroke: "rgba(0,0,0,.5)", "stroke-width": 1.2}, g);
+  roundRect(g, tx + 3, ty + 46, tw - 6, 44, tw / 2 - 2, {fill: "var(--cw-sup)", opacity: .3}, g);
+  el("line", {x1: tx - 6, y1: ty + th + 6, x2: tx + tw + 6, y2: ty + th + 6,
+    stroke: "rgba(0,0,0,.35)", "stroke-width": 3}, g);
+  txt(g, tx + tw / 2, ty - 6, "气压定压罐", {"font-size": 9.5, fill: "var(--tx-2)",
+    "text-anchor": "middle"}, g);
+
+  /* 补水泵 (小型) */
+  const px = x + 12, py = y2 - 30;
+  circle(g, px + 18, py, 15, {fill: "url(#g-metal)", stroke: "rgba(0,0,0,.5)", "stroke-width": 1.2}, g);
+  for (let i = 0; i < 3; i++) {
+    const a = i * 2.094;
+    el("path", {d: `M${px + 18} ${py} q${Math.cos(a) * 8} ${Math.sin(a) * 8} `
+      + `${Math.cos(a + .9) * 10} ${Math.sin(a + .9) * 10}`, fill: "none",
+      stroke: "rgba(20,30,45,.7)", "stroke-width": 1.7}, g);
+  }
+  roundRect(g, px + 8, py - 26, 22, 12, 2.5, {fill: "url(#g-motor)", stroke: "rgba(0,0,0,.5)",
+    "stroke-width": .9}, g);
+  txt(g, px + 18, py + 32, "补水泵", {"font-size": 9, fill: "var(--tx-2)", "text-anchor": "middle"}, g);
+  statusDot(g, px + 34, py - 20, SYS.twr[0].st === "run" ? "run" : "stop", 3.4);
+
+  /* 补水压力表 */
+  gauge(g, x + 96, y2 - 46, () => SYS.mains.make.p, {r: 17, max: .5, label: "补水压力",
+    color: "var(--cw-sup)", fmt: v => v.toFixed(2) + "MPa"});
+
+  /* 管线: 水箱 → 泵 → 定压罐 → 集水器 (管线主体由管道层绘制) */
+  el("path", {d: `M${x + 86} ${y1 + 62} H${x + 104} V${py} H${px + 3}`, fill: "none",
+    stroke: "var(--cw-sup)", "stroke-width": 4, opacity: .85}, g);
+  el("path", {d: `M${px + 33} ${py} H${tx + tw / 2}`, fill: "none",
+    stroke: "var(--cw-sup)", "stroke-width": 4, opacity: .85}, g);
+  txt(g, x + 28, y2 + 24, "补水定压装置", {"font-size": 11, "font-weight": 650, fill: "var(--tx)"}, g);
+  el("rect", {x: x - 4, y: y1, width: 178, height: y2 - y1 + 40, fill: "transparent", class: "hit"}, g);
+  return g;
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 6 — 管网: 正交路由 / 跨线桥 / 立体着色 / 流体路径注册
+   ========================================================================== */
+
+const PIPES = [];                   // 流体粒子通道注册表
+
+/* 管道立体着色: 外护套 → 保温层 → 管体 → 顶部高光 → 底部暗面
+   高光/暗面用等距偏移实现圆柱受光, 水平/竖直管均正确 */
+function strokePipe(parent, id, anchors, o) {
+  const w = o.w || 14;
+  const rt = buildRoute(anchors, {r: o.r === undefined ? 11 : o.r,
+    hopR: w / 2 + 6, hops: o.hops || []});
+  const g = gt(parent, "pipe", {"data-pipe": id, "data-fluid": o.fluid || ""});
+  const common = {d: rt.d, fill: "none", "stroke-linecap": "round", "stroke-linejoin": "round"};
+  /* 外护套 (支架/保温外壳) */
+  el("path", Object.assign({}, common, {stroke: "rgba(4,10,20,.55)", "stroke-width": w + 6}), g);
+  el("path", Object.assign({}, common, {stroke: "var(--line)", "stroke-width": w + 3.4, "stroke-opacity": .5}), g);
+  /* 管体 */
+  const body = el("path", Object.assign({}, common, {stroke: o.color, "stroke-width": w}), g);
+  /* 受光面 */
+  el("path", Object.assign({}, common, {stroke: "rgba(255,255,255,.34)",
+    "stroke-width": Math.max(1.1, w * .20), transform: `translate(0 ${(-w * .26).toFixed(2)})`,
+    opacity: .9}), g);
+  /* 背光面 */
+  el("path", Object.assign({}, common, {stroke: "rgba(0,0,0,.30)",
+    "stroke-width": Math.max(1, w * .16), transform: `translate(0 ${(w * .30).toFixed(2)})`}), g);
+  /* 管内流体虚线 (停泵时静止变暗) —— 作为粒子层之下的辅助纹理 */
+  const fl = el("path", Object.assign({}, common, {stroke: "rgba(255,255,255,.42)",
+    "stroke-width": 1.2, "stroke-dasharray": "3 19", class: "flowline", opacity: .26}), g);
+  if (o.flow !== false) PIPES.push({
+    id, rt, w, color: o.color, fkind: o.fluid || "", speed: o.speed || 46,
+    active: o.active || (() => true), phase: Math.random() * 400, flowEl: fl, bodyEl: body
+  });
+  if (o.note) txt(o.labelLayer, anchors[0][0], anchors[0][1] - w, o.note,
+    {"font-size": 8.5, fill: "var(--tx-3)"});
+  return g;
+}
+
+/* 路由辅助: 生成 4 行通用的接管坐标 */
+const R = (i, off) => ROWS[i] + off;
+
+/* ---------- 6.1 冷冻水系统 (闭式一次泵环路) ---------- */
+function buildChilledWater(L) {
+  const BLUE_S = "var(--cw-sup)", BLUE_R = "var(--cw-ret)";
+  const anyPump = () => SYS.chwp.some(p => p.st === "run");
+  const anyChiller = () => SYS.chillers.some(c => c.st === "run");
+
+  /* 集水器 → 冷冻水回水立管 (上升) */
+  strokePipe(L.cold, "cw-ret-riser",
+    [[G.retMan.x2, G.retMan.y], [X.cwRet, G.retMan.y], [X.cwRet, R(0, DY)]],
+    {w: 17, color: BLUE_R, speed: 42, active: anyPump, fluid: "cw-ret"});
+
+  ROWS.forEach((ry, i) => {
+    /* 立管 → 水泵入口 */
+    strokePipe(L.cold, "cw-ret-" + i, [[X.cwRet, R(i, DY)], [G.chpX[0], R(i, DY)]],
+      {w: 13, color: BLUE_R, speed: 44, r: 0,
+       active: () => SYS.chwp[i].st === "run", fluid: "cw-ret"});
+    /* 水泵出口 → 蒸发器进水 (跨线桥: 跨越冷冻水供水立管) */
+    strokePipe(L.cold, "cw-disch-" + i,
+      [[G.chpX[1], R(i, DY)], [X.cwSup, R(i, DY)], [G.chlX[0], R(i, DY)]],
+      {w: 13, color: BLUE_R, speed: 46, r: 0,
+       hops: [{x: X.cwSup, y: R(i, DY)}],
+       active: () => SYS.chwp[i].st === "run" && SYS.chillers[i].st === "run", fluid: "cw-ret"});
+    /* 蒸发器出水 → 供水立管 */
+    strokePipe(L.cold, "cw-sup-stub-" + i, [[G.chlX[0], R(i, -DY)], [X.cwSup, R(i, -DY)]],
+      {w: 13, color: BLUE_S, speed: 44, r: 0,
+       active: () => SYS.chillers[i].st === "run", fluid: "cw-sup"});
+  });
+
+  /* 冷冻水供水立管 → 分水器 */
+  strokePipe(L.cold, "cw-sup-riser",
+    [[X.cwSup, R(3, -DY)], [X.cwSup, G.supMan.y], [G.supMan.x2, G.supMan.y]],
+    {w: 17, color: BLUE_S, speed: 48, active: anyChiller, fluid: "cw-sup"});
+}
+
+/* ---------- 6.2 冷却水系统 (开式循环: 塔 → 泵 → 冷凝器 → 塔) ---------- */
+function buildCondenserWater(L) {
+  const GRN = "var(--cdw-sup)", ORG = "var(--cdw-ret)";
+  const anyPump = () => SYS.cdp.some(p => p.st === "run");
+  const anyChiller = () => SYS.chillers.some(c => c.st === "run");
+  const anyTower = () => SYS.twr.some(t => t.st === "run");
+
+  ROWS.forEach((ry, i) => {
+    /* 塔集水盘 → 冷却水供水立管 */
+    strokePipe(L.cd, "cdw-basin-" + i,
+      [[G.twrX[0], R(i, G.twrOutY)], [X.cdSup, R(i, G.twrOutY)], [X.cdSup, R(i, DY)]],
+      {w: 13, color: GRN, speed: 40, r: 8,
+       active: () => SYS.twr[i].st === "run", fluid: "cdw-sup"});
+    /* 供水立管 → 冷却水泵入口 */
+    strokePipe(L.cd, "cdw-suc-" + i, [[X.cdSup, R(i, DY)], [G.cdpX[1], R(i, DY)]],
+      {w: 13, color: GRN, speed: 42, r: 0,
+       active: () => SYS.cdp[i].st === "run", fluid: "cdw-sup"});
+    /* 水泵出口 → 冷凝器进水 (跨线桥: 跨越冷却水回水立管) */
+    strokePipe(L.cd, "cdw-disch-" + i,
+      [[G.cdpX[0], R(i, DY)], [X.cdRet, R(i, DY)], [G.chlX[1], R(i, DY)]],
+      {w: 13, color: GRN, speed: 44, r: 0, hops: [{x: X.cdRet, y: R(i, DY)}],
+       active: () => SYS.cdp[i].st === "run" && SYS.chillers[i].st === "run", fluid: "cdw-sup"});
+    /* 冷凝器出水 → 回水立管 */
+    strokePipe(L.cd, "cdw-ret-stub-" + i, [[G.chlX[1], R(i, -DY)], [X.cdRet, R(i, -DY)]],
+      {w: 13, color: ORG, speed: 42, r: 0,
+       active: () => SYS.chillers[i].st === "run", fluid: "cdw-ret"});
+    /* 回水立管 → 塔顶配水 (跨越) */
+    strokePipe(L.cd, "cdw-warm-branch-" + i,
+      [[X.cdWarm, R(i, G.twrInY)], [G.twrX[1], R(i, G.twrInY)]],
+      {w: 13, color: ORG, speed: 40, r: 0,
+       active: () => SYS.twr[i].st === "run", fluid: "cdw-ret"});
+  });
+
+  /* 冷却水供水立管 (塔集水盘 → 泵, 上升) */
+  strokePipe(L.cd, "cdw-sup-riser",
+    [[X.cdSup, R(3, G.twrOutY)], [X.cdSup, R(0, DY)]],
+    {w: 15, color: GRN, speed: 40, active: anyPump, fluid: "cdw-sup"});
+  /* 冷却水回水立管 (冷凝器 → 顶部横管, 上升) */
+  strokePipe(L.cd, "cdw-ret-riser",
+    [[X.cdRet, R(3, -DY)], [X.cdRet, G.railY], [G.cdWarmX, G.railY], [G.cdWarmX, R(0, G.twrInY)]],
+    {w: 15, color: ORG, speed: 44, active: anyChiller, fluid: "cdw-ret"});
+  /* 顶部接管立管 → 各塔 */
+  strokePipe(L.cd, "cdw-warm-stem",
+    [[G.cdWarmX, G.railY], [G.cdWarmX, R(3, G.twrInY)]],
+    {w: 13, color: ORG, speed: 46, r: 0, active: anyTower, fluid: "cdw-ret"});
+}
+
+/* ---------- 6.3 补水定压管线 ---------- */
+function buildMakeup(L) {
+  strokePipe(L.valve, "make-up",
+    [[G.mua.x + 96, G.mua.y2 - 16], [G.mua.x + 96, G.retMan.y], [G.mua.x + 130, G.retMan.y]],
+    {w: 8, color: "var(--cw-sup)", speed: 26, r: 0, fluid: "makeup"});
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 7 — 阀门附件布置 / 系统测点 / 图例 / KPI 概览盘
+   ========================================================================== */
+
+/* 立面标高简写 */
+const X = {
+  cwRet: G.cwRetX, cwSup: G.cwSupX, chp: G.chpX, chl: G.chlX,
+  cdp: G.cdpX, cdRet: G.cdRetX, cdSup: G.cdSupX, twr: G.twrX,
+  cdWarm: G.cdWarmX, rail: G.railY
+};
+
+/* ---------- 7.1 阀门与附件 ---------- */
+function buildValves(L) {
+  const P = L.valve;
+  ROWS.forEach((ry, i) => {
+    /* 冷冻水泵组: 吸入 [闸阀-软接头]  排出 [止回阀-蝶阀] —— ASHRAE 标准泵组配置 */
+    vGate (P, 486, R(i, DY), 0);
+    vFlex (P, 516, R(i, DY), 0);
+    vCheck(P, 646, R(i, DY), 0, "var(--cw-ret)");
+    vGate (P, 670, R(i, DY), 0);
+    /* 冷却水泵组: 吸入 [闸阀-过滤器-软接头]  排出 [止回阀] */
+    vGate (P, 1650, R(i, DY), 0);
+    vFilter(P, 1600, R(i, DY), 0);
+    vFlex (P, 1420, R(i, DY), 0);
+    vCheck(P, 1281, R(i, DY), 0, "var(--cdw-sup)");
+  });
+  /* 总管电动调节阀 (角行程执行器, 带 0-100% 开度反馈) */
+  vMotor(P, X.cwSup, 210, -90, () => 100);          // 冷冻水供水总管
+  vMotor(P, X.cdSup, 330, -90, () => 58);           // 冷却水供水总管
+  vMotor(P, X.cdRet, 416, 90,  () => 62);           // 冷却水回水立管
+  /* 总管过滤器 / 闸阀 */
+  vFilter(P, X.cwRet, 320, 90);
+  vFilter(P, X.cdSup, 600, -90);
+  vGate (P, X.cdWarm, 300, -90);
+  vFilter(P, X.cdWarm, 360, -90);
+  /* 末端环路接出 (分集水器支管) */
+  [G.supMan, G.retMan].forEach((m, k) => {
+    const up = k === 0;
+    for (let i = 0; i < 6; i++)
+      vGate(L.valve, m.x1 + 46 + i * 58, up ? m.y - m.h / 2 - 25 : m.y + m.h / 2 + 25, 90);
+  });
+
+  /* ---------- 静态流向箭头 (无动画时亦能判读流向, 满足导出/打印需求) ---------- */
+  const A = L.valve;
+  flowArrow(A, X.cwRet, 430, -90, "var(--cw-ret)");            // 冷冻水回水立管 ↑
+  flowArrow(A, X.cwSup, 430, -90, "var(--cw-sup)");            // 冷冻水供水立管 ↑
+  flowArrow(A, 556, G.supMan.y, 180, "var(--cw-sup)");         // 供水干管 ←
+  flowArrow(A, 450, G.retMan.y, 0, "var(--cw-ret)");           // 回水干管 →
+  flowArrow(A, X.cdSup, 560, -90, "var(--cdw-sup)");           // 冷却水供水立管 ↑
+  flowArrow(A, X.cdRet, 320, -90, "var(--cdw-ret)");           // 冷却水回水立管 ↑
+  flowArrow(A, 1400, G.railY, 0, "var(--cdw-ret)");            // 顶部横管 →
+  flowArrow(A, X.cdWarm, 420, 90, "var(--cdw-ret)");           // 顶部立管 ↓
+  ROWS.forEach((ry, i) => {
+    flowArrow(A, 1560, R(i, DY), 180, "var(--cdw-sup)");       // 冷却水泵吸入 ←
+    flowArrow(A, 1915, R(i, G.twrInY), 180, "var(--cdw-ret)"); // 冷却塔配水 ←
+    flowArrow(A, 1720, R(i, G.twrOutY), 180, "var(--cdw-sup)");// 塔集水盘出水 ←
+  });
+}
+
+/* ---------- 7.2 系统测点 (T 温度 / P 压力 / F 流量) ---------- */
+function buildSensors(L) {
+  const P = L.valve, m = SYS.mains, a = agg;
+  /* 冷冻水供水立管 */
+  sensor(P, X.cwSup, 300, "T", () => m.chws.t.toFixed(1) + "℃",
+    {ang: -90, side: -1, color: "var(--cw-sup)", tx: 650, ty: 304});
+  /* 冷冻水回水立管 */
+  sensor(P, X.cwRet, 430, "P", () => m.chwr.p.toFixed(2) + "MPa",
+    {ang: 90, side: -1, color: "var(--cw-ret)", tx: 516, ty: 434});
+  /* 冷却水供水立管 */
+  sensor(P, X.cdSup, 430, "T", () => m.cws.t.toFixed(1) + "℃",
+    {ang: -90, side: -1, color: "var(--cdw-sup)", tx: 1645, ty: 434});
+  sensor(P, X.cdSup, 560, "P", () => m.cws.p.toFixed(2) + "MPa",
+    {ang: -90, side: -1, color: "var(--cdw-sup)", tx: 1645, ty: 564});
+  /* 冷却水回水顶部总管 */
+  sensor(P, 1540, G.railY, "T", () => m.cwr.t.toFixed(1) + "℃",
+    {side: 1, color: "var(--cdw-ret)", tx: 1540, ty: 174});
+  sensor(P, 1440, G.railY, "F", () => m.cwr.q.toFixed(0) + "m³/h",
+    {side: 1, color: "var(--cdw-ret)", tx: 1440, ty: 174});
+  /* 系统冷量计量仪表 */
+  gauge(L.valve, 306, 600, () => (m.chwr.t - m.chws.t),
+    {r: 27, max: 8, label: "供回水温差 ΔT  K", color: "var(--cw-sup)", fmt: v => v.toFixed(2)});
+  gauge(L.valve, 372, 600, () => a().need,
+    {r: 27, max: 3600, label: "系统冷负荷  kW", color: "var(--st-run)", fmt: v => v.toFixed(0)});
+}
+
+/* ---------- 7.3 图例 (ASHRAE / GB/T 50114) ---------- */
+function buildLegend(L) {
+  const g = gt(L, "legend");                       // L 即为 UI 图层组
+  const x0 = 448, y0 = 688, cw = 182, rh = 36;   // rh 需 ≥ 34: 阀门/传感器符号自身高度约 48px
+  roundRect(g, x0 - 14, y0 - 32, 1470, 112, 8,
+    {fill: "var(--panel)", stroke: "var(--line)", "stroke-width": 1}, g);
+  txt(g, x0 - 4, y0 - 12, "图例  LEGEND", {"font-size": 10.5, fill: "var(--tx-3)",
+    "letter-spacing": 1.8, "font-weight": 700}, g);
+  txt(g, x0 + 150, y0 - 12, "依据 ASHRAE Handbook — HVAC Systems & Equipment · GB/T 50114《暖通空调制图标准》",
+    {"font-size": 9, fill: "var(--tx-3)"}, g);
+  txt(g, x0 - 4, y0 + 74, "制冷机房 B1 · 冷源系统工艺流程图 P&ID · 冷冻水一次泵变流量 + 冷却水开式循环",
+    {"font-size": 9, fill: "var(--tx-3)", "letter-spacing": .4}, g);
+  txt(g, x0 + 1456, y0 + 74, "港中旅集团维景国际大酒店 · Borry BCNS 冷站网络管控系统 V2.0",
+    {"font-size": 9, fill: "var(--tx-3)", "text-anchor": "end", "letter-spacing": .4}, g);
+
+  const items = [];
+  /* 流体管路 */
+  items.push({k: "line", c: "var(--cw-sup)", t: "冷冻水供水 7.0℃"});
+  items.push({k: "line", c: "var(--cw-ret)", t: "冷冻水回水 12.5℃"});
+  items.push({k: "line", c: "var(--cdw-sup)", t: "冷却水供水 32.1℃"});
+  items.push({k: "line", c: "var(--cdw-ret)", t: "冷却水回水 37.2℃"});
+  items.push({k: "fn", f: (p, x, y) => vGate(p, x, y, 0), t: "闸阀 / 蝶阀"});
+  items.push({k: "fn", f: (p, x, y) => vCheck(p, x, y, 0, "var(--tx-2)"), t: "止回阀 (单向)"});
+  items.push({k: "fn", f: (p, x, y) => vMotor(p, x, y, 0, () => 65), t: "电动调节阀 + 开度反馈"});
+  items.push({k: "fn", f: (p, x, y) => vFilter(p, x, y, 0), t: "Y 型过滤器"});
+  items.push({k: "fn", f: (p, x, y) => vFlex(p, x, y, 0), t: "软接头 (减振)"});
+  /* 图例中的传感器只画"变送器 + 实时值气泡"符号本身;
+     浮动实测值文字会压到上一行文字, 故此处传空 getter —— 图中 74 处实时读数已足够体现 */
+  items.push({k: "fn", f: (p, x, y) => sensor(p, x, y, "T", () => "",
+    {tx: x, ty: y, color: "var(--acs)"}), t: "温度传感器 T (实时值)"});
+  items.push({k: "fn", f: (p, x, y) => sensor(p, x, y, "P", () => "",
+    {tx: x, ty: y, color: "var(--acs)"}), t: "压力传感器 P (实时值)"});
+  items.push({k: "fn", f: (p, x, y) => sensor(p, x, y, "F", () => "",
+    {tx: x, ty: y, color: "var(--acs)"}), t: "流量计 F (实时值)"});
+  items.push({k: "dots", t: "运行 / 停机 / 预警 / 故障 状态指示"});
+  items.push({k: "hop", t: "跨线桥 (管道不同平面)"});
+  /* 注意: 以下两个自绘符号必须把 x,y 落到 transform 上, 否则会画到画布原点 (-18,-6) 处 */
+  items.push({k: "fn", f: (p, x, y) => {
+    const gg = gt(p, "lb", {transform: `translate(${x - 4} ${y})`});
+    el("path", {d: "M-18 -6H6", stroke: "var(--cw-sup)",
+      "stroke-width": 9, fill: "none"}, gg);
+    el("path", {d: "M6 -6A10 10 0 0 1 6 6", stroke: "var(--cw-sup)", "stroke-width": 9,
+      fill: "none"}, gg);
+    return gg;
+  }, t: "管道交叉跨线 (立体避让)"});
+  items.push({k: "fn", f: (p, x, y) => {
+    const gg = gt(p, "lb", {transform: `translate(${x - 10} ${y})`}); let d = "";
+    for (let i = 0; i <= 7; i++) d += (i ? "L" : "M") + (-14 + i * 4) + " " + (i % 2 ? -6 : 6);
+    el("path", {d, fill: "none", stroke: "var(--acs)", "stroke-width": 2.2}, gg);
+    return gg;
+  }, t: "沿程流体动效 (粒子/虚线)"});
+
+  items.forEach((it, i) => {
+    const col = i % 8, row = Math.floor(i / 8);
+    const x = x0 + col * cw, y = y0 + 6 + row * rh;
+    const gg = gt(g, "lg-item");
+    if (it.k === "line") {
+      el("path", {d: `M${x} ${y} H${x + 34}`, stroke: it.c, "stroke-width": 9,
+        "stroke-linecap": "round", opacity: .95}, gg);
+      el("path", {d: `M${x} ${y} H${x + 34}`, stroke: "rgba(255,255,255,.3)",
+        "stroke-width": 1.6, transform: `translate(0 -2.4)`}, gg);
+    } else if (it.k === "fn") {
+      it.f(gg, x + 14, y);
+    } else if (it.k === "dots") {
+      ["run", "stop", "warn", "fault"].forEach((s, k) => statusDot(gg, x + 4 + k * 12, y, s, 4));
+    } else if (it.k === "hop") {
+      const hg = gt(gg, "");
+      el("path", {d: `M${x} ${y + 2} V${y - 12}`, stroke: "var(--tx-3)", "stroke-width": 3.4}, hg);
+      el("path", {d: `M${x - 12} ${y}A12 12 0 0 1 ${x + 12} ${y}`, stroke: "var(--cw-sup)",
+        "stroke-width": 7, fill: "none"}, hg);
+    }
+    txt(g, x + 24, y + 4, it.t, {"font-size": 10.2, fill: "var(--tx-2)"});
+  });
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 8 — KPI 全局概览仪表盘
+   ========================================================================== */
+function kpiCard(p, x, y, w, h, cfg) {
+  const g = gt(p, "kpi-card");
+  roundRect(g, x, y, w, h, 8, {fill: "var(--panel)", stroke: "var(--line)",
+    "stroke-width": 1}, g);
+  roundRect(g, x, y + 14, 3.4, h - 28, 1.7, {fill: cfg.accent || "var(--acs)"}, g);
+  txt(g, x + 14, y + 20, cfg.label, {"font-size": 10.5, fill: "var(--tx-3)",
+    "letter-spacing": 1.1, "font-weight": 650}, g);
+  const val = txt(g, x + 13, y + 60, "", {"font-size": cfg.fs || 30, fill: "var(--tx)",
+    "font-family": "var(--ff-num)", "font-weight": 650, "letter-spacing": -1});
+  txt(g, x + w - 14, y + 60, cfg.unit || "", {"font-size": 11.5, fill: "var(--tx-3)",
+    "text-anchor": "end", "font-family": "var(--ff-num)"}, g);
+  /* 进度条 */
+  let barF = null, barBg = null;
+  if (cfg.bar) {
+    barBg = roundRect(g, x + 14, y + 68, w - 28, 5.4, 2.7, {fill: "rgba(0,0,0,.30)"}, g);
+    barF = el("rect", {x: x + 14, y: y + 68, width: 0, height: 5.4, rx: 2.7,
+      fill: cfg.barColor || cfg.accent}, g);
+  }
+  const sub = txt(g, x + 14, y + h - 10, "", {"font-size": 10.2, fill: "var(--tx-2)",
+    "font-family": "var(--ff-num)"});
+  if (cfg.dots) {
+    const dg = gt(g, "kpi-dots");
+    cfg.dots.forEach((d, i) => {
+      const dx = x + 14 + i * 54, dy = y + 78;
+      roundRect(dg, dx, dy - 11, 48, 22, 4, {fill: "rgba(120,150,190,.10)"}, dg);
+      statusDot(dg, dx + 8, dy, d.st, 3.4);
+      txt(dg, dx + 15, dy + 3.6, d.n, {"font-size": 9.6, fill: "var(--tx-2)",
+        "font-family": "var(--ff-num)"}, dg);
+    });
+  }
+  live(() => {
+    const r = cfg.get();
+    val.textContent = r.v;
+    if (r.color) val.setAttribute("fill", r.color);
+    if (barF) barF.setAttribute("width", Math.max(0, Math.min(1, r.f)) * (w - 28));
+    sub.textContent = r.s;
+  });
+  return g;
+}
+
+function buildKPI(L) {
+  const g = gt(L, "kpi");
+  const K = G.kpi, n = 8, gap = 9;
+  const w = (K.w - gap * (n - 1)) / n, y = K.y, h = K.h;
+  const ax = i => K.x + i * (w + gap);
+  const CAP = 7032;                       // 4×1758 kW 装机容量
+
+  /* 1 系统冷负荷 */
+  kpiCard(g, ax(0), y, w, h, {
+    label: "系统总制冷量 · 末端冷负荷", unit: "kW", accent: "var(--cw-sup)",
+    bar: true, barColor: "var(--cw-sup)",
+    get: () => { const a = agg();
+      return {v: a.need.toFixed(0), f: a.need / CAP, s: `装机容量 ${CAP} kW · 负载 ${(a.need/CAP*100).toFixed(1)}%`}; }
+  });
+  /* 2 系统总能耗 */
+  kpiCard(g, ax(1), y, w, h, {
+    label: "系统总能耗 (主机+辅机)", unit: "kW", accent: "var(--st-warn)", bar: true,
+    barColor: "var(--st-warn)",
+    get: () => { const a = agg();
+      return {v: a.total.toFixed(0), f: a.total / 2000,
+        s: `主机 ${a.kw.toFixed(0)} kW · 辅机 ${a.aux.toFixed(0)} kW`
+         + ` · 辅机占比 ${(a.aux / Math.max(1, a.total) * 100).toFixed(1)}%`}; }
+  });
+  /* 3 冷站综合 COP (含冷水机组 + 水泵 + 风机辅机) */
+  kpiCard(g, ax(2), y, w, h, {
+    label: "冷站综合能效比 COP", unit: "kW/kW", accent: "var(--st-run)", bar: true,
+    barColor: "var(--st-run)",
+    get: () => { const a = agg();
+      return {v: a.cop.toFixed(2), f: a.cop / 5.6,
+        color: a.cop >= 4.2 ? PAL["st-run"] : (a.cop >= 3.8 ? PAL["st-warn"] : PAL["st-fault"]),
+        s: `设计值 4.20 · 目标值 4.60 · 评价 ${a.cop >= 4.2 ? "优" : a.cop >= 3.8 ? "良" : "偏低"}`}; }
+  });
+  /* 4 冷冻水温度 */
+  kpiCard(g, ax(3), y, w, h, {
+    label: "冷冻水供水温度 / 回水温度", unit: "℃", accent: "var(--cw-sup)",
+    get: () => { const m = SYS.mains, dT = m.chwr.t - m.chws.t;
+      return {v: m.chws.t.toFixed(1), s: `回水 ${m.chwr.t.toFixed(1)}℃ · ΔT ${dT.toFixed(2)} K `
+        + `· 流量 ${m.chws.q.toFixed(0)} m³/h`}; }
+  });
+  /* 5 冷却水温度 */
+  kpiCard(g, ax(4), y, w, h, {
+    label: "冷却水回水温度 / 供水温度", unit: "℃", accent: "var(--cdw-ret)",
+    get: () => { const m = SYS.mains, ap = SYS.twr.reduce((s,t)=>s+t.approach,0)/4;
+      return {v: m.cwr.t.toFixed(1), s: `供水 ${m.cws.t.toFixed(1)}℃ · 平均逼近度 ${ap.toFixed(2)} K `
+        + `· 湿球 ${SYS.meta.outdoor.wb.toFixed(1)}℃`}; }
+  });
+  /* 6 机组状态汇总 */
+  kpiCard(g, ax(5), y, w, h, {
+    label: "机组运行状态汇总", unit: "台", accent: "var(--st-run)", fs: 30,
+    dots: SYS.chillers.map((c, i) => ({st: c.st, n: (i + 1) + "#"})),
+    get: () => { const r = SYS.chillers.filter(c => c.st === "run").length;
+      const f = SYS.chillers.filter(c => c.st === "fault").length;
+      return {v: r + "/4", s: `运行 ${r} 台 · 停机 ${4 - r - f} 台 · 故障 ${f} 台 · 备机自动轮换`}; }
+  });
+  /* 7 室外气象 */
+  kpiCard(g, ax(6), y, w, h, {
+    label: "室外气象参数", unit: "℃", accent: "var(--acs)",
+    get: () => { const o = SYS.meta.outdoor;
+      return {v: o.t.toFixed(1), s: `湿球温度 ${o.wb.toFixed(1)}℃ · 相对湿度 ${o.rh}% `
+        + `· 冷却塔设计工况`}; }
+  });
+  /* 8 当日累计电量 / 单位冷量能耗 */
+  kpiCard(g, ax(7), y, w, h, {
+    label: "当日累计耗电量 · 单位冷量能耗", unit: "kWh", accent: "var(--cdw-sup)",
+    get: () => { const a = agg();
+      const day = 12480 + a.kwh, unit = a.total / Math.max(1, a.cool);
+      return {v: day.toFixed(0),
+        s: `折合 ${(day * 0.00058).toFixed(2)} tCO₂ · 单位冷量能耗 ${unit.toFixed(3)} kW/kW `
+         + `· 较基准 ${unit <= 0.280 ? "节能" : "偏高"} ${Math.abs((1 - unit / 0.280) * 100).toFixed(1)}%`}; }
+  });
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 9 — 场景装配 / 设计令牌解析 / Canvas 流体粒子引擎
+   ========================================================================== */
+
+const LAYERS = {};
+function buildScene() {
+  const svg = document.getElementById("scene");
+  buildDefs(svg);
+  const root = gt(svg, "root");
+  LAYERS.cold  = gt(root, "layer", {"data-l": "1-cold-water"});
+  LAYERS.cd    = gt(root, "layer", {"data-l": "2-cond-water"});
+  LAYERS.eq    = gt(root, "layer", {"data-l": "3-equipment"});
+  LAYERS.valve = gt(root, "layer", {"data-l": "4-valve-instrument"});
+  LAYERS.ui    = gt(root, "layer", {"data-l": "5-ui"});
+  const L = {cold: LAYERS.cold, cd: LAYERS.cd, eq: LAYERS.eq,
+             valve: LAYERS.valve, ui: LAYERS.ui};
+
+  /* 1) 管网 */
+  buildChilledWater(L);
+  buildCondenserWater(L);
+  buildMakeup(L);
+
+  /* 2) 设备 */
+  ROWS.forEach((ry, i) => {
+    symPump(L.eq, G.chpX[0], G.chpX[1], R(i, DY), SYS.chwp[i], false);
+    symPump(L.eq, G.cdpX[0], G.cdpX[1], R(i, DY), SYS.cdp[i], true);
+    symChiller(L.eq, G.chlX[0], G.chlX[1], ROWS[i], SYS.chillers[i]);
+    symTower(L.eq, G.twrX[0], G.twrX[1], ROWS[i], SYS.twr[i]);
+  });
+  symManifold(L.eq, G.supMan, "sup");
+  symManifold(L.eq, G.retMan, "ret");
+  symMakeup(L.eq, G.mua);
+
+  /* 3) 阀门附件 + 测点仪表 */
+  buildValves(L);
+  buildSensors(L);
+
+  /* 4) KPI 概览盘 + 图例 */
+  buildKPI(L.ui);
+  buildLegend(L.ui);
+
+  /* 5) 分集水器末端环路接出支管 (静态, 不参与动效) */
+  const st = gt(L.cold, "stub");
+  [G.supMan, G.retMan].forEach((m, k) => {
+    const up = k === 0, col = up ? "var(--cw-sup)" : "var(--cw-ret)";
+    for (let i = 0; i < 6; i++) {
+      const nx = m.x1 + 46 + i * 58;
+      const y1 = up ? m.y - m.h / 2 - 8 : m.y + m.h / 2 + 8;
+      const y2 = up ? y1 - 34 : y1 + 34;
+      el("path", {d: `M${nx} ${y1} V${y2}`, stroke: col, "stroke-width": 9,
+        "stroke-linecap": "round", opacity: .85}, st);
+      el("path", {d: `M${nx} ${y1} V${y2}`, stroke: "rgba(255,255,255,.28)",
+        "stroke-width": 1.6, transform: "translate(-2.2 0)"}, st);
+      el("path", {d: `M${nx} ${y2} l-4 ${up ? -7 : 7} h8 z`, fill: col, opacity: .9}, st);
+    }
+  });
+
+  /* 6) 制冷机房边界 (点划线) */
+  const bd = gt(L.cold, "bound");
+  roundRect(bd, 40, 126, 1900, 638, 10, {fill: "none", stroke: "var(--line-2)",
+    "stroke-width": 1.2, "stroke-dasharray": "12 6 3 6"}, bd);
+  /* 分区标注 */
+  [["冷冻水系统 CHILLED WATER", 250], ["冷源主机 CHILLER PLANT", 980],
+   ["冷却水系统 CONDENSER WATER", 1560]].forEach(([t, x]) => {
+    txt(L.ui, x, 122, t, {"font-size": 9.6, fill: "var(--tx-3)", "text-anchor": "middle",
+      "letter-spacing": 1.6, "font-weight": 600});
+  });
+  resolveVars(svg);
+}
+
+/* ---------- 9.1 设计令牌解析 (SVG 内 var() → 真实色值, 主题切换可回滚) ---------- */
+const RAW = new WeakMap();          // 首次记录的 var() 模板, 保证主题可反复切换
+function resolveVars(root) {
+  const cs = getComputedStyle(document.body);
+  const cache = {};
+  const getv = k => cache[k] !== undefined ? cache[k]
+    : (cache[k] = cs.getPropertyValue(k).trim() || "#8A99AE");
+  root.querySelectorAll("*").forEach(n => {
+    let rec = RAW.get(n);
+    for (const a of Array.from(n.attributes)) {
+      if (a.value && a.value.indexOf("var(--") >= 0) {
+        if (!rec) { rec = {}; RAW.set(n, rec); }
+        if (!(a.name in rec)) rec[a.name] = a.value;
+        n.setAttribute(a.name, rec[a.name].replace(/var\((--[a-zA-Z0-9-]+)\)/g, (_, k) => getv(k)));
+      }
+    }
+  });
+  readPalette(cs);
+}
+
+/* ---------- 9.2 Canvas 流体粒子引擎 ---------- */
+const cv = document.getElementById("fx"), ctx = cv.getContext("2d");
+const PAL = {};
+function readPalette(cs) {
+  cs = cs || getComputedStyle(document.body);
+  ["cw-sup", "cw-ret", "cdw-sup", "cdw-ret", "cond", "acs",
+   "st-run", "st-stop", "st-warn", "st-fault"]
+    .forEach(k => PAL[k] = (cs.getPropertyValue("--" + k) || "").trim() || "#00B4D8");
+}
+function fitCanvas() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function hex2rgb(h) {
+  h = (h || "").trim();
+  if (h[0] === "#") {
+    if (h.length === 4) h = "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
+    const n = parseInt(h.slice(1), 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const m = h.match(/(\d+(?:\.\d+)?)/g);
+  return m ? [+m[0], +m[1], +m[2]] : [0, 180, 216];
+}
+function mix(a, b, t) {
+  const A = hex2rgb(a), B = hex2rgb(b);
+  return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(",")})`;
+}
+/* 温度 → 流体颜色 (冷冻水: 越冷越亮, 超设定值转深) */
+function fluidColor(kind) {
+  const m = SYS.mains;
+  if (kind === "cw-sup") {                                  // 7.0℃ 基准
+    const k = clamp((m.chws.t - 6.2) / 3.6, 0, 1);
+    return mix(mix("#BFF4FF", PAL["cw-sup"], .55), PAL["cw-ret"], k * .55);
+  }
+  if (kind === "cw-ret") {                                  // 12.5℃ 基准
+    const k = clamp((m.chwr.t - 11.0) / 3.5, 0, 1);
+    return mix(PAL["cw-ret"], "#7B3FA0", k * .5);
+  }
+  if (kind === "cdw-sup") {                                 // 32.1℃ 基准
+    const k = clamp((m.cws.t - 30.5) / 3.5, 0, 1);
+    return mix(PAL["cdw-sup"], "#C9A227", k * .55);
+  }
+  if (kind === "cdw-ret") {                                 // 37.2℃ 基准
+    const k = clamp((m.cwr.t - 35.5) / 3.6, 0, 1);
+    return mix(PAL["cdw-ret"], PAL["st-fault"], k * .6);
+  }
+  return PAL["acs"];
+}
+
+let FLOW_ON = true, lastT = 0;
+function renderFlow(dt) {
+  ctx.clearRect(0, 0, W, H);
+  if (!FLOW_ON) return;
+  ctx.lineCap = "round";
+  for (const p of PIPES) {
+    const on = p.active();
+    p.on = p.on === undefined ? (on ? 1 : 0) : p.on + ((on ? 1 : 0) - p.on) * Math.min(1, dt * 2.6);
+    if (p.on < .02) continue;
+    const gap = Math.max(26, p.w * 2.0);
+    const spd = p.speed * (p.w < 10 ? .7 : 1);
+    p.phase = (p.phase + spd * dt * p.on) % gap;
+    const col = fluidColor(p.fkind);
+    const rgb = hex2rgb(col);
+    const core = p.w * .30, tail = p.w * .95;
+
+    /* 光晕层 */
+    ctx.globalAlpha = .22 * p.on;
+    ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},1)`;
+    ctx.lineWidth = core * 3.1;
+    ctx.beginPath();
+    for (let s = p.phase - gap; s < p.rt.len + gap; s += gap) {
+      if (s < 0 || s > p.rt.len) continue;
+      const q = sampleAt(p.rt, s);
+      ctx.moveTo(q.x - Math.cos(q.a) * tail, q.y - Math.sin(q.a) * tail);
+      ctx.lineTo(q.x + Math.cos(q.a) * core, q.y + Math.sin(q.a) * core);
+    }
+    ctx.stroke();
+
+    /* 核心层 */
+    ctx.globalAlpha = .92 * p.on;
+    ctx.strokeStyle = `rgba(${Math.min(255, rgb[0] + 90)},${Math.min(255, rgb[1] + 90)},${Math.min(255, rgb[2] + 90)},1)`;
+    ctx.lineWidth = core * .72;
+    ctx.beginPath();
+    for (let s = p.phase - gap; s < p.rt.len + gap; s += gap) {
+      if (s < 0 || s > p.rt.len) continue;
+      const q = sampleAt(p.rt, s);
+      ctx.moveTo(q.x - Math.cos(q.a) * tail * .55, q.y - Math.sin(q.a) * tail * .55);
+      ctx.lineTo(q.x + Math.cos(q.a) * core * .3, q.y + Math.sin(q.a) * core * .3);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 10 — 交互层: 设备索引 / 参数面板 / 悬浮联动 / 视图控制
+   ========================================================================== */
+
+/* 设备 → 关联管路与联动设备 (悬浮时高亮所在管路) */
+const RELATED = {};
+function buildRelations() {
+  ROWS.forEach((ry, i) => {
+    RELATED["chiller-" + (i + 1)] = {
+      pipes: ["cw-disch-" + i, "cw-sup-stub-" + i, "cdw-disch-" + i, "cdw-ret-stub-" + i],
+      eqs: ["pump-chwp-" + (i + 1), "pump-cdp-" + (i + 1)]
+    };
+    RELATED["pump-chwp-" + (i + 1)] = {
+      pipes: ["cw-ret-riser", "cw-ret-" + i, "cw-disch-" + i, "cw-sup-stub-" + i],
+      eqs: ["chiller-" + (i + 1)]
+    };
+    RELATED["pump-cdp-" + (i + 1)] = {
+      pipes: ["cdw-basin-" + i, "cdw-suc-" + i, "cdw-disch-" + i, "cdw-ret-stub-" + i],
+      eqs: ["chiller-" + (i + 1)]
+    };
+    RELATED["tower-" + (i + 1)] = {
+      pipes: ["cdw-basin-" + i, "cdw-warm-branch-" + i, "cdw-sup-riser", "cdw-warm-stem"],
+      eqs: []
+    };
+  });
+  RELATED["splitter"]  = {pipes: ["cw-sup-riser"], eqs: []};
+  RELATED["collector"] = {pipes: ["cw-ret-riser"], eqs: []};
+  RELATED["makeup"]    = {pipes: ["make-up"], eqs: []};
+}
+
+/* ---------- 10.1 设备信息模型 ---------- */
+function devInfo(key) {
+  const [type, n] = key.split("-"), i = (+n || 1) - 1;
+  if (type === "chiller") {
+    const c = SYS.chillers[i];
+    return {name: c.name, tag: `CH-${c.id}  离心式  R134a  1758 kW`, st: c.st, icon: "❄", obj: c,
+      rows: [
+        ["运行状态", ST[c.st].l, "st"],
+        ["负载率", c.load.toFixed(1) + " %", "p", c.load],
+        ["机组 COP", c.cop.toFixed(2), null],
+        ["输入功率", c.kw.toFixed(0) + " kW"],
+        ["运行电流", c.curr.toFixed(0) + " A"],
+        ["冷冻水流量", c.flow.toFixed(0) + " m³/h"],
+        ["蒸发器进/出水", c.evapIn.toFixed(1) + " / " + c.evapOut.toFixed(1) + " ℃"],
+        ["蒸发温度(饱和)", c.satEvap.toFixed(1) + " ℃"],
+        ["冷凝器进/出水", c.condIn.toFixed(1) + " / " + c.condOut.toFixed(1) + " ℃"],
+        ["冷凝温度(饱和)", c.satCond.toFixed(1) + " ℃"],
+        ["供油压力 / 温度", c.oilP.toFixed(2) + " MPa / " + c.oilT.toFixed(1) + " ℃"],
+        ["累计运行 / 启动", c.runH.toLocaleString() + " h / " + c.startCnt + " 次"]
+      ]};
+  }
+  if (type === "pump") {
+    const kind = n, id = key.split("-")[2];
+    const p = (kind === "chwp" ? SYS.chwp : SYS.cdp)[(+id || 1) - 1];
+    const nm = kind === "chwp" ? "冷冻水泵" : "冷却水泵";
+    return {name: p.name, tag: `P-${kind === "chwp" ? "CHW" : "CDW"}-${p.id}  卧式离心泵  变频`,
+      st: p.st, icon: "⟳", obj: p,
+      rows: [
+        ["运行状态", ST[p.st].l, "st"],
+        ["变频器输出", p.hz.toFixed(1) + " Hz", "p", p.hz * 2],
+        ["电机电流", p.curr.toFixed(0) + " A", "p", p.curr / 1.5],
+        ["进水压力", p.pIn.toFixed(2) + " MPa"],
+        ["出水压力", p.pOut.toFixed(2) + " MPa"],
+        ["运行压差", (p.dp * 1000).toFixed(0) + " kPa"],
+        ["瞬时流量", p.flow.toFixed(1) + " m³/h"],
+        ["转速", (p.hz * 29.3).toFixed(0) + " r/min"],
+        ["累计运行", p.runH.toLocaleString() + " h"],
+        ["附件配置", "闸阀 + 软接头 + 止回阀 (标准泵组)"]
+      ]};
+  }
+  if (type === "tower") {
+    const t = SYS.twr[i];
+    return {name: t.name, tag: `CT-${t.id}  方形横流式  逆流填料`, st: t.st, icon: "≋", obj: t,
+      rows: [
+        ["运行状态", ST[t.st].l, "st"],
+        ["风机频率", t.fanHz.toFixed(1) + " Hz", "p", t.fanHz * 1.9],
+        ["风机电流", t.fanCurr.toFixed(1) + " A"],
+        ["进塔水温", t.inT.toFixed(1) + " ℃"],
+        ["出塔水温", t.outT.toFixed(1) + " ℃"],
+        ["逼近度 Approach", t.approach.toFixed(2) + " K"],
+        ["淋水密度", "8.6 m³/(m²·h)"],
+        ["补水量", t.makeup.toFixed(1) + " m³/h"],
+        ["排污/漂损", t.drift.toFixed(2) + " m³/h"],
+        ["累计运行", t.runH.toLocaleString() + " h"],
+        ["风机台数", "2 台 / 塔 (并联运行)"]
+      ]};
+  }
+  if (key === "splitter") {
+    const m = SYS.mains;
+    return {name: "分水器 (供水集管)", tag: "SPLITTER  DN250  6 路末端支管", st: "run", icon: "⊟",
+      obj: m.chws,
+      rows: [["供水温度", m.chws.t.toFixed(1) + " ℃"], ["供水压力", m.chws.p.toFixed(2) + " MPa"],
+        ["系统总流量", m.chws.q.toFixed(0) + " m³/h", "p", m.chws.q / 800],
+        ["末端压差设定", m.chws.p.toFixed(2) + " MPa"],
+        ["供水温度设定", m.chws.sp.toFixed(1) + " ℃"],
+        ["当前温偏", (m.chws.t - m.chws.sp).toFixed(2) + " K"]]};
+  }
+  if (key === "collector") {
+    const m = SYS.mains;
+    return {name: "集水器 (回水集管)", tag: "COLLECTOR  DN250  6 路末端支管", st: "run", icon: "⊞",
+      obj: m.chwr,
+      rows: [["回水温度", m.chwr.t.toFixed(1) + " ℃"], ["回水压力", m.chwr.p.toFixed(2) + " MPa"],
+        ["系统总流量", m.chwr.q.toFixed(0) + " m³/h", "p", m.chwr.q / 800],
+        ["供回水温差", (m.chwr.t - m.chws.t).toFixed(2) + " K"],
+        ["末端冷负荷", agg().need.toFixed(0) + " kW"]]};
+  }
+  if (key === "makeup") {
+    const m = SYS.mains;
+    return {name: "补水定压装置", tag: "软水箱 5 m³ + 补水泵 + 气压定压罐", st: "run", icon: "⊕",
+      obj: m.make,
+      rows: [["定压压力", m.make.p.toFixed(2) + " MPa"], ["补水流量", m.make.q.toFixed(1) + " m³/h"],
+        ["补水累计", "128.4 m³ (本季)"], ["水质电导率", "182 μS/cm"],
+        ["补水温度", (m.chws.t + .4).toFixed(1) + " ℃"]]};
+  }
+  return null;
+}
+
+/* ---------- 10.2 微型趋势曲线 ---------- */
+const HIST = {};
+function series(key, v) {
+  const h = HIST[key] || (HIST[key] = []);
+  h.push(v); if (h.length > 90) h.shift();
+  return h;
+}
+function sparkline(p, x, y, w, h, data, color) {
+  const g = gt(p, "spark");
+  roundRect(g, x, y, w, h, 4, {fill: "rgba(0,0,0,.22)", stroke: "var(--line)",
+    "stroke-width": 1}, g);
+  if (data.length < 2) return g;
+  const mn = Math.min(...data), mx = Math.max(...data), sp = (mx - mn) || 1;
+  for (let i = 0; i <= 2; i++)
+    el("line", {x1: x, y1: y + h * i / 2, x2: x + w, y2: y + h * i / 2,
+      stroke: "var(--line)", "stroke-width": .6}, g);
+  let d = "", ar = "";
+  data.forEach((v, i) => {
+    const px = x + 3 + (w - 6) * i / (data.length - 1);
+    const py = y + h - 4 - (h - 8) * (v - mn) / sp;
+    d += (i ? "L" : "M") + px.toFixed(1) + " " + py.toFixed(1);
+    ar += (i ? "L" : "M") + px.toFixed(1) + " " + py.toFixed(1);
+  });
+  ar += `L${x + w - 3} ${y + h - 3} L${x + 3} ${y + h - 3} Z`;
+  el("path", {d: ar, fill: color, opacity: .13}, g);
+  el("path", {d, fill: "none", stroke: color, "stroke-width": 1.6,
+    "stroke-linejoin": "round"}, g);
+  const last = data[data.length - 1];
+  const lx = x + w - 3, ly = y + h - 4 - (h - 8) * (last - mn) / sp;
+  circle(g, lx, ly, 2.4, {fill: color}, g);
+  txt(g, x + 6, y + 11, mx.toFixed(1), {"font-size": 8.4, fill: "var(--tx-3)",
+    "font-family": "var(--ff-num)"}, g);
+  txt(g, x + 6, y + h - 4, mn.toFixed(1), {"font-size": 8.4, fill: "var(--tx-3)",
+    "font-family": "var(--ff-num)"}, g);
+  return g;
+}
+
+/* ---------- 10.3 参数面板 (右侧抽屉) ---------- */
+function openDrawer(key) {
+  const d = devInfo(key);
+  if (!d) return;
+  DR_KEY = key;
+  const dr = document.getElementById("drawer");
+  document.getElementById("dr-name").textContent = d.name;
+  document.getElementById("dr-tag").textContent = d.tag;
+  document.getElementById("dr-ic").textContent = d.icon;
+  const bd = document.getElementById("dr-body");
+  bd.innerHTML = "";
+
+  /* 状态条 */
+  const s1 = document.createElement("div");
+  s1.className = "sec-t"; s1.textContent = "运行状态";
+  bd.appendChild(s1);
+  const p1 = document.createElement("div");
+  p1.innerHTML = `<span class="pill ${d.st}">${ST[d.st].l}</span>
+    <span style="margin-left:10px;font-size:11px;color:var(--tx-3)">
+    数据时标 ${new Date().toLocaleTimeString("zh-CN")}</span>`;
+  bd.appendChild(p1);
+
+  /* 参数表 */
+  d.rows.forEach(([k, v, flag, barV], idx) => {
+    if (idx === 0) { const s = document.createElement("div"); s.className = "sec-t";
+      s.textContent = "工艺参数"; bd.appendChild(s); }
+    const row = document.createElement("div");
+    row.style.margin = "4px 0";
+    let html = `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+    if (barV !== undefined) {
+      const pct = clamp(barV, 0, 100);
+      html += `<div class="bar"><i style="width:${pct}%;background:${
+        flag === "st" ? "var(--st-run)" : "var(--acs)"}"></i></div>`;
+    }
+    row.innerHTML = html;
+    bd.appendChild(row);
+  });
+
+  /* 趋势 */
+  const s3 = document.createElement("div");
+  s3.className = "sec-t"; s3.textContent = "实时趋势 (近 90 点)";
+  bd.appendChild(s3);
+  const svgNS = "http://www.w3.org/2000/svg";
+  const s = document.createElementNS(svgNS, "svg");
+  s.setAttribute("viewBox", "0 0 296 76"); s.style.width = "100%"; s.style.height = "76px";
+  bd.appendChild(s);
+  const g = document.createElementNS(svgNS, "g");
+  s.appendChild(g);
+  DR_SPARK = {svg: s, g, key: d.obj};
+  drawDrawerSpark();
+
+  /* 报警 / 建议 */
+  const s4 = document.createElement("div");
+  s4.className = "sec-t"; s4.textContent = "诊断与建议";
+  bd.appendChild(s4);
+  const adv = document.createElement("div");
+  adv.style.cssText = "font-size:11.5px;color:var(--tx-2);line-height:1.75";
+  const c = SYS.chillers[0];
+  const tips = [];
+  if (key.indexOf("chiller") === 0) {
+    const ch = d.obj;
+    if (ch.evapOut > SYS.mains.chws.sp + .8) tips.push("蒸发器出水温度高于设定值 " +
+      (ch.evapOut - SYS.mains.chws.sp).toFixed(2) + " K，建议复核冷量分配或提升导叶开度。");
+    if (ch.condOut - ch.evapOut < 28) tips.push("冷凝温差偏小，机组效率有下降风险，建议清洗冷凝器管束。");
+    if (ch.satCond - ch.condOut > 3.2) tips.push("冷凝端传热温差偏大，存在结垢可能，建议安排化学清洗。");
+    tips.push("建议按 4#→3#→2#→1# 顺序轮换启停，均衡各机组运行小时数。");
+  } else if (key.indexOf("pump") === 0) {
+    if (d.obj.hz < 40) tips.push("变频器输出低于 40 Hz，请确认末端最不利环路压差是否满足。");
+    if (d.obj.dp < .12) tips.push("运行压差偏低，可能存在过滤器堵塞或叶轮磨损。");
+    tips.push("建议每季度检查软接头与地脚减振器状态。");
+  } else if (key.indexOf("tower") === 0) {
+    if (d.obj.approach > 5) tips.push("逼近度大于 5 K，建议检查布水均匀性与填料结垢情况。");
+    tips.push("建议每月检查集水盘液位与补水阀动作情况。");
+  } else tips.push("系统运行平稳，参数均在允许范围内。");
+  adv.innerHTML = tips.map(t =>
+    `<div style="display:flex;gap:7px;margin:3px 0"><span style="color:var(--acs)">▸</span><span>${t}</span></div>`).join("");
+  bd.appendChild(adv);
+
+  dr.classList.add("open");
+  dr.setAttribute("aria-hidden", "false");
+}
+let DR_KEY = null, DR_SPARK = null;
+function drawDrawerSpark() {
+  if (!DR_SPARK) return;
+  while (DR_SPARK.g.firstChild) DR_SPARK.g.removeChild(DR_SPARK.g.firstChild);
+  const o = DR_SPARK.key, data = series("dr" + DR_KEY + "v",
+    o.cop !== undefined ? o.cop : (o.hz !== undefined ? o.hz : (o.fanHz !== undefined ? o.fanHz : o.t)));
+  sparkline(DR_SPARK.g, 0, 0, 296, 76, data, PAL["acs"] || "#00D4FF");
+}
+
+/* ---------- 10.4 悬浮提示 ---------- */
+const TIP = document.getElementById("tip");
+function showTip(key, ev) {
+  const d = devInfo(key);
+  if (!d) return;
+  TIP.innerHTML = `<div class="t-h"><s style="background:${ST[d.st].c}"></s>${d.name}</div>`
+    + d.rows.slice(0, 6).map(([k, v]) =>
+      `<div class="t-r"><span>${k}</span><b>${v}</b></div>`).join("")
+    + `<div class="t-f">单击查看完整参数与趋势 ▸</div>`;
+  TIP.classList.add("on");
+  moveTip(ev);
+}
+function moveTip(ev) {
+  const w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let x = ev.clientX + 16, y = ev.clientY + 14;
+  if (x + w > innerWidth - 8) x = ev.clientX - w - 16;
+  if (y + h > innerHeight - 8) y = ev.clientY - h - 14;
+  TIP.style.left = x + "px"; TIP.style.top = y + "px";
+}
+function hideTip() { TIP.classList.remove("on"); }
+
+/* ---------- 10.5 联动高亮 ---------- */
+function setFocus(key, on) {
+  const rel = RELATED[key];
+  document.querySelectorAll("svg [data-eq]").forEach(n => {
+    const k = n.getAttribute("data-eq");
+    if (on && k !== key && (!rel || rel.eqs.indexOf(k) < 0)) n.classList.add("dim");
+    else n.classList.remove("dim");
+  });
+  document.querySelectorAll("svg [data-pipe]").forEach(n => {
+    const k = n.getAttribute("data-pipe");
+    if (on && (!rel || rel.pipes.indexOf(k) < 0)) n.classList.add("dim");
+    else n.classList.remove("dim");
+  });
+}
+</script>
+<script>
+/* ==========================================================================
+   PART 11 — 视图控制 / 事件总线 / 数据轮询 / 启动
+   ========================================================================== */
+
+const stage = document.getElementById("stage");
+const wrap  = document.getElementById("stagewrap");
+const svgEl = document.getElementById("scene");
+const view  = {s: 1, x: 0, y: 0, base: 1};
+
+/* 触屏设备判定 —— 不能用 screen 单独判 (桌面浏览器/无头环境的 screen 常为 800×600),
+   主判据是「有触摸点 + 主指针为粗指针/无悬停」, 辅以窄窗口兜底 */
+const isTouch = () => {
+  const mm = q => !!(window.matchMedia && matchMedia(q).matches);
+  if (window.innerWidth < 600) return true;                    // 窄窗口 (含手机竖屏)
+  const mtp = navigator.maxTouchPoints || 0;
+  if (!mtp || Math.min(screen.width, screen.height) >= 1024) return false;
+  return mm("(pointer:coarse)") || mm("(any-pointer:coarse)") || mm("(hover:none)");
+};
+/* 布局模式: 由脚本写 body.mobi, 供 CSS 与视图策略共用同一判据 */
+function applyLayoutMode() {
+  const on = isTouch();
+  const chg = document.body.classList.contains("mobi") !== on;
+  document.body.classList.toggle("mobi", on);
+  return chg;
+}
+
+/* 视窗边界约束: 图比屏幕大时不允许拖出画面, 图比屏幕小时居中 */
+function clampView() {
+  const aw = wrap.clientWidth, ah = wrap.clientHeight;
+  const cw = W * view.s, ch = H * view.s;
+  view.x = cw <= aw ? (aw - cw) / 2 : clamp(view.x, aw - cw, 0);
+  view.y = ch <= ah ? (ah - ch) / 2 : clamp(view.y, ah - ch, 0);
+}
+function applyView() {
+  clampView();
+  stage.style.transform = `translate(${view.x.toFixed(2)}px,${view.y.toFixed(2)}px) scale(${view.s.toFixed(4)})`;
+}
+function fitView() {
+  const aw = wrap.clientWidth, ah = wrap.clientHeight;
+  view.base = Math.min(aw / W, ah / H);
+  view.s = view.base;
+  view.x = (aw - W * view.s) / 2;
+  view.y = (ah - H * view.s) / 2;
+  applyView();
+}
+
+/* 工艺分区视窗 —— 移动端一键飞入 (小屏无法整体缩小阅读, 改为分区定位) */
+let curRegion = "all";
+const REG = {
+  all    : [0, 0, W, H],
+  chiller: [706, 178, 1264, 668],   // 4×离心式冷水机组
+  mua    : [40, 150, 470, 762],     // 分水器 / 集水器 / 补水定压
+  cw     : [54, 126, 738, 776],     // 冷冻水一次泵变流量回路
+  cdw    : [1228, 126, 1738, 776],  // 冷却水开式循环回路
+  tower  : [1682, 88, 1966, 708]    // 冷却塔组
+};
+function zoomTo(x1, y1, x2, y2, pad = 24) {
+  const aw = wrap.clientWidth, ah = wrap.clientHeight;
+  const s = clamp(Math.min(aw / (x2 - x1 + pad * 2), ah / (y2 - y1 + pad * 2)),
+                  view.base * .45, view.base * 10);
+  view.s = s;
+  view.x = aw / 2 - (x1 + x2) / 2 * s;
+  view.y = ah / 2 - (y1 + y2) / 2 * s;
+  applyView();
+}
+function gotoRegion(k) {
+  curRegion = k;
+  document.querySelectorAll("#m-nav .mn-b").forEach(b =>
+    b.setAttribute("aria-pressed", b.dataset.region === k ? "true" : "false"));
+  if (k === "all") { fitView(); return; }
+  const r = REG[k];
+  if (r) zoomTo(r[0], r[1], r[2], r[3]);
+}
+/* 初始视图: 桌面端整体自适应; 触屏端按高度铺满并聚焦冷水机组区, 同时提示手势 */
+function bootView() {
+  fitView();
+  if (!isTouch()) return;
+  view.s = clamp(wrap.clientHeight / H, view.base, view.base * 10);
+  gotoRegion("chiller");
+  const h = document.getElementById("m-hint");
+  if (h) { h.classList.add("on"); setTimeout(() => h.classList.remove("on"), 4600); }
+}
+wrap.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = wrap.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const k = e.deltaY < 0 ? 1.13 : 1 / 1.13;
+  const ns = clamp(view.s * k, view.base * .45, view.base * 10);
+  const kk = ns / view.s;
+  view.x = px - (px - view.x) * kk;
+  view.y = py - (py - view.y) * kk;
+  view.s = ns; applyView();
+}, {passive: false});
+
+/* 拖拽平移 (与点击区分) */
+let drag = null, pinch = null, LAST_TOUCH = 0, LAST_MOVE = 0;
+wrap.addEventListener("pointerdown", e => {
+  if (e.button !== 0 || pinch) return;
+  LAST_MOVE = 0;
+  drag = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: 0};
+});
+wrap.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.moved = Math.abs(dx) + Math.abs(dy);
+  LAST_MOVE = drag.moved;
+  if (drag.moved > 6) {
+    wrap.classList.add("grabbing");
+    view.x = drag.vx + dx; view.y = drag.vy + dy; applyView();
+  }
+});
+["pointerup", "pointercancel", "pointerleave"].forEach(t =>
+  wrap.addEventListener(t, () => { drag = null; wrap.classList.remove("grabbing"); }));
+
+/* 触屏: 双指捏合缩放 (以两指中点为锚点), 单指仍走上面的拖拽逻辑 */
+wrap.addEventListener("touchstart", e => {
+  LAST_TOUCH = Date.now();
+  if (e.touches.length === 2) {
+    drag = null; wrap.classList.remove("grabbing");
+    const a = e.touches[0], b = e.touches[1];
+    const r = wrap.getBoundingClientRect();
+    pinch = {
+      d: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)),
+      cx: (a.clientX + b.clientX) / 2 - r.left,
+      cy: (a.clientY + b.clientY) / 2 - r.top,
+      s: view.s, x: view.x, y: view.y
+    };
+  }
+}, {passive: true});
+wrap.addEventListener("touchmove", e => {
+  LAST_TOUCH = Date.now();
+  if (!pinch || e.touches.length !== 2) return;
+  e.preventDefault();
+  const a = e.touches[0], b = e.touches[1];
+  const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  const ns = clamp(pinch.s * (d / pinch.d), view.base * .45, view.base * 10);
+  const kk = ns / pinch.s;
+  view.x = pinch.cx - (pinch.cx - pinch.x) * kk;
+  view.y = pinch.cy - (pinch.cy - pinch.y) * kk;
+  view.s = ns; applyView();
+}, {passive: false});
+["touchend", "touchcancel"].forEach(t =>
+  wrap.addEventListener(t, e => { if (e.touches.length < 2) pinch = null; }, {passive: true}));
+
+/* 双击 / 双指双击复位到全图 */
+wrap.addEventListener("dblclick", () => gotoRegion("all"));
+
+/* 底部区域快捷定位 */
+document.querySelectorAll("#m-nav .mn-b").forEach(b => {
+  b.onclick = () => gotoRegion(b.dataset.region);
+});
+
+/* 移动端 KPI 条 —— 复用同一份遥测数据, 供小屏直接读数 */
+function bindMobileKPI() {
+  const q = id => document.getElementById(id);
+  if (!q("mk-cool")) return;
+  const CAP = 7032;                                  // 4×1758 kW 装机容量
+  LIVE.push({fn: () => {
+    const a = agg(), m = SYS.mains;
+    q("mk-cool").textContent  = a.need.toFixed(0);
+    q("mk-total").textContent = a.total.toFixed(0);
+    q("mk-cop").textContent   = a.cop.toFixed(2);
+    q("mkc-cop").classList.toggle("good", a.cop >= 4.2);
+    q("mkc-cop").classList.toggle("hot", a.cop < 3.8);
+    q("mk-cw").textContent = m.chws.t.toFixed(1) + " / " + m.chwr.t.toFixed(1);
+    q("mk-cd").textContent = m.cws.t.toFixed(1) + " / " + m.cwr.t.toFixed(1);
+    q("mk-run").textContent = SYS.chillers.filter(c => c.st === "run").length;
+    const lr = a.need / CAP * 100;
+    q("mk-load").textContent = lr.toFixed(1);
+    q("mkc-cool").classList.toggle("hot", lr > 92);
+    q("mk-kwh").textContent = a.kwh.toFixed(0);
+  }});
+}
+
+/* ---------- 11.1 悬浮 / 点击 ---------- */
+svgEl.addEventListener("mousemove", e => {
+  if (Date.now() - LAST_TOUCH < 900) return;      // 触屏合成的 mousemove 不弹气泡
+  const n = e.target.closest ? e.target.closest("[data-eq]") : null;
+  if (n) {
+    const k = n.getAttribute("data-eq");
+    if (k !== HOVER_KEY) { if (HOVER_KEY) setFocus(HOVER_KEY, false); HOVER_KEY = k; setFocus(k, true); }
+    showTip(k, e);
+  } else if (HOVER_KEY) { setFocus(HOVER_KEY, false); HOVER_KEY = null; hideTip(); }
+});
+svgEl.addEventListener("mouseleave", () => {
+  if (HOVER_KEY) setFocus(HOVER_KEY, false);
+  HOVER_KEY = null; hideTip();
+});
+let HOVER_KEY = null;
+svgEl.addEventListener("click", e => {
+  const n = e.target.closest ? e.target.closest("[data-eq]") : null;
+  if (!n || LAST_MOVE > 6) return;              // 拖动过画布则不当作点击
+  openDrawer(n.getAttribute("data-eq"));
+});
+document.getElementById("dr-close").onclick = () => {
+  document.getElementById("drawer").classList.remove("open");
+  DR_KEY = null; DR_SPARK = null;
+};
+
+/* ---------- 11.2 顶栏按钮 ---------- */
+const btnTheme = document.getElementById("btn-theme");
+btnTheme.onclick = () => {
+  const light = document.body.classList.toggle("light");
+  btnTheme.textContent = light ? "◑ 夜视" : "◐ 白昼";
+  resolveVars(svgEl);
+  readPalette();
+  if (DR_KEY) { drawDrawerSpark(); resolveVars(document.getElementById("drawer")); }
+};
+document.getElementById("btn-fit").onclick = () => gotoRegion("all");
+const btnFlow = document.getElementById("btn-flow");
+btnFlow.onclick = () => {
+  FLOW_ON = !FLOW_ON;
+  btnFlow.setAttribute("aria-pressed", FLOW_ON ? "true" : "false");
+  document.querySelectorAll(".flowline").forEach(n => n.style.display = FLOW_ON ? "" : "none");
+  renderFlow(0);
+};
+let LABEL_ON = true;
+const btnLabel = document.getElementById("btn-label");
+btnLabel.onclick = () => {
+  LABEL_ON = !LABEL_ON;
+  btnLabel.setAttribute("aria-pressed", LABEL_ON ? "true" : "false");
+  ["chip", "sen", "gauge", "kpi"].forEach(c =>
+    document.querySelectorAll("svg ." + c).forEach(n =>
+      n.style.display = LABEL_ON ? "" : "none"));
+};
+
+/* ---------- 11.3 告警 ---------- */
+const alarmEl = document.getElementById("alarm");
+function checkAlarm() {
+  const items = [];
+  SYS.twr.forEach(t => { if (t.approach > 5.0)
+    items.push(`${t.name} 逼近度 ${t.approach.toFixed(2)} K 偏高，建议检查布水均匀性与填料结垢`); });
+  SYS.chillers.forEach(c => { if (c.cop < 5.2)
+    items.push(`${c.name} 实时 COP ${c.cop.toFixed(2)} 低于经济值 (5.20)，建议核查冷凝器污垢与导叶开度`); });
+  if (SYS.mains.chws.t > SYS.mains.chws.sp)
+    items.push(`冷冻水供水温度 ${SYS.mains.chws.t.toFixed(1)}℃ 高于设定 ${SYS.mains.chws.sp.toFixed(1)}℃`);
+  if (items.length) {
+    alarmEl.classList.add("on");
+    document.getElementById("alarm-tx").textContent =
+      `预警 ${items.length} 项：` + items[0] + (items.length > 1 ? ` （另 ${items.length - 1} 项）` : "");
+    document.querySelectorAll("#topbar .dot").forEach(d => d.style.background = "var(--st-warn)");
+  } else {
+    alarmEl.classList.remove("on");
+    document.querySelectorAll("#topbar .dot").forEach(d => d.style.background = "var(--st-run)");
+  }
+}
+
+/* ---------- 11.4 时钟与数据轮询 ---------- */
+const SCAN = 5;
+let scanLeft = SCAN;
+setInterval(() => {
+  const d = new Date();
+  document.getElementById("tb-clock").textContent =
+    d.toLocaleTimeString("zh-CN", {hour12: false});
+  scanLeft--; if (scanLeft <= 0) scanLeft = SCAN;
+  document.getElementById("tb-scan").textContent = scanLeft.toFixed(1);
+}, 1000);
+
+function refreshData() {
+  tickData();
+  LIVE.forEach(o => { try { o.fn(); } catch (err) {} });
+  checkAlarm();
+  if (DR_KEY) { drawDrawerSpark(); resolveVars(document.getElementById("drawer")); }
+}
+
+/* 频率联动: 泵频 → 流速 (Hz 越高, 粒子行速越快) */
+function syncSpeed() {
+  const chz = SYS.chwp.reduce((s, p) => s + p.hz, 0) / 4;
+  const dhz = SYS.cdp.reduce((s, p) => s + p.hz, 0) / 4;
+  PIPES.forEach(p => {
+    if (p.fkind === "cw-sup" || p.fkind === "cw-ret") p.speed = 20 + chz * 1.5;
+    else if (p.fkind === "cdw-sup" || p.fkind === "cdw-ret") p.speed = 20 + dhz * 1.5;
+  });
+}
+
+/* ---------- 11.5 主循环 ---------- */
+function loop(ts) {
+  const dt = Math.min(.05, (ts - lastT) / 1000 || .016);
+  lastT = ts;
+  renderFlow(dt);
+  /* 呼吸/闪烁类动画由 CSS 承担, 此处只处理流体 */
+  requestAnimationFrame(loop);
+}
+
+/* ---------- 11.6 启动 ---------- */
+function boot() {
+  readPalette();                     // 先解析设计令牌, 供动态着色使用
+  buildRelations();
+  buildScene();
+  fitCanvas();
+  readPalette();
+  applyLayoutMode();                 // 先定布局模式 (影响可视高度), 再算初始视图
+  bootView();                        // 桌面整体自适应 / 触屏按高度铺满+聚焦机组区
+  bindMobileKPI();                   // 移动端 KPI 条接入同一份遥测
+  refreshData();
+  syncSpeed();
+  /* 首次进入不自动展开面板, 保证全系统视图完整; 悬浮即看参数, 点击展开详情 */
+  window.addEventListener("resize", () => {
+    const chg = applyLayoutMode();
+    view.base = Math.min(wrap.clientWidth / W, wrap.clientHeight / H);
+    if (chg) bootView();             // 布局模式切换 (如横竖屏) → 重新给初始视角
+    else gotoRegion(curRegion);      // 仅尺寸变化 → 保持当前工艺分区视角
+    fitCanvas();
+  });
+  setInterval(() => { refreshData(); syncSpeed(); }, SCAN * 1000);
+  requestAnimationFrame(loop);
+  console.log("%c冷站网络管控系统 V2.0 已启动", "color:#00D4FF;font-weight:700",
+    "\n工艺回路: 冷冻水一次泵变流量 / 冷却水开式循环",
+    "\n数据接口: DS.subscribe(cb) 可替换为 MQTT / OPC-UA",
+    "\n" + PIPES.length + " 条流体通道 · " + LIVE.length + " 个实时读数点");
+}
+boot();
+</script>
+
+</body>
+</html>
