@@ -269,17 +269,19 @@ body.light #mn-alarm{color:#8E1B24;background:rgba(230,57,70,.1)}
    方波频闪在近距离小屏上眨眼明显, 长时间盯会不适 (仍保留"跳变"以示故障) */
 .blink{animation:blink 1.6s steps(1,end) infinite}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.30}}
-/* 流体虚线 (SVG 兜底层, 与 Canvas 粒子叠加)
-   注意: 虚线周期必须正好等于 keyframes 的偏移量, 否则循环接缝处会跳帧 */
-.flowline{stroke-dasharray:2 14;animation:dash 1.05s linear infinite}
-@keyframes dash{to{stroke-dashoffset:-16}}
-.off .flowline{animation-play-state:paused;opacity:.14}
-
-/* 小比例浏览 (缩放 <0.66, 即手机横屏那种"整图塞进小屏"的情形):
-   2 设计单位的虚线缩到 0.41 倍后只有 0.8 视口像素 —— 亚像素细线在移动中会碎成
-   游动的亮点 (摩尔纹/闪烁感)。故加粗到 4、周期放大到 28 (仍是周期的整数倍) 并放慢。 */
-body.calm .flowline{stroke-dasharray:4 24;animation-name:dashc;animation-duration:1.9s}
-@keyframes dashc{to{stroke-dashoffset:-28}}
+/* 管内流体虚线 —— **静态引流纹理**, 不做位移动画。
+   历史教训: 这里原先用 CSS 动画推 stroke-dashoffset。它不是可合成属性, 38 条同时
+   动画会让浏览器每帧把整个 SVG 图层重新光栅化, 代价实测 (无头 Edge, 同一份文件):
+     桌面 1680×940    60.0fps → 38.6fps
+     手机横屏 844×390 60.0fps → 17.8fps  (整幅 1966×780 入屏, 重栅格面积是竖屏 3 倍)
+   而且 1.2 设计单位的白线缩到 0.41 倍后只剩 ~1.5 设备像素, 亚像素相位逐帧抖动,
+   低频下就表现为高频频闪 —— 观感正是"水管像闪电、忽闪忽闪"。
+   流动改由 Canvas 粒子层独占表达: 开销只有它的 1/3, 且与读数同钟, 不会互相拍频。 */
+.flowline{stroke-dasharray:2 14;stroke-dashoffset:0}
+.off .flowline{opacity:.14}
+/* 小比例浏览 (缩放 <0.66, 即手机横屏"整图塞进小屏"): 2 设计单位的虚线缩到
+   0.41 倍后只有 0.8 视口像素, 密点会碎成颗粒, 加粗到 5/25 保持可辨认 */
+body.calm .flowline{stroke-dasharray:5 25}
 
 /* ---------- 10. 响应式 ---------- */
 @media(max-width:900px){
@@ -373,7 +375,10 @@ body.mobi{
     display:block;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
     z-index:45;padding:7px 14px;border-radius:18px;font-size:11.5px;white-space:nowrap;
     background:rgba(10,16,26,.84);border:1px solid var(--line-2);color:var(--tx);
-    opacity:0;transition:opacity .45s;pointer-events:none;backdrop-filter:blur(8px);
+    opacity:0;transition:opacity .45s;pointer-events:none;
+    /* 这里**不能**再写 backdrop-filter: 它与上面「小屏一律去掉毛玻璃」那条特异度
+       相同 (都是一个 id + 一个类 + 一个类型), 写在后面就把那一条盖掉 ——
+       上一轮正是因此让 #m-hint 在手机上仍留着 blur(8px), 每帧重采样画布 */
   }
   body.light #m-hint{background:rgba(255,255,255,.94)}
   #m-hint.on{opacity:1}
@@ -408,7 +413,6 @@ body.mobi.portrait #m-rot{
   background:
     radial-gradient(680px 420px at 50% 10%, rgba(0,180,216,.16), transparent 62%),
     var(--bg);
-  backdrop-filter:blur(7px);
 }
 body.light.mobi.portrait #m-rot{
   background:
@@ -2109,10 +2113,13 @@ function syncCanvasScale() {
 let calmMode = false;
 const prefersReduced = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion:reduce)").matches);
 function syncFlowTier() {
-  const want = prefersReduced() || view.s < .66;
-  if (want === calmMode) return;
-  calmMode = want;
-  document.body.classList.toggle("calm", want);
+  /* 只有一个画质档了 —— 原先还有一档"SVG 虚线爬行", 那条 CSS 动画是非合成属性,
+     会把整个 SVG 图层每帧重光栅化 (桌面 60→38.6fps / 手机横屏 60→17.8fps),
+     是本次闪烁的根因, 已整体移除 (见 CSS 处注释)。流动由 Canvas 粒子独占表达。 */
+  const calm = prefersReduced() || view.s < .66;
+  if (calm === calmMode) return;
+  calmMode = calm;
+  document.body.classList.toggle("calm", calm);
 }
 function hex2rgb(h) {
   h = (h || "").trim();
@@ -2946,8 +2953,9 @@ function syncSpeed() {
 function loop(ts) {
   const dt = Math.min(.05, (ts - lastT) / 1000 || .016);
   lastT = ts;
-  renderFlow(dt);
-  /* 呼吸/闪烁类动画由 CSS 承担, 此处只处理流体 */
+  /* 竖屏横屏引导遮罩铺满全屏时画布谁也看不见, 停掉免得白转一帧 */
+  if (!document.body.classList.contains("portrait")) renderFlow(dt);
+  /* 呼吸/闪烁类动画由 CSS 承担 (只动 opacity, 可合成), 此处只处理流体 */
   requestAnimationFrame(loop);
 }
 
